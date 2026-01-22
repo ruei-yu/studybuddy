@@ -12,7 +12,7 @@ const subjects = [
   { name: "刑法", target: 1.5 },
   { name: "公務員法", target: 1 },
   { name: "憲法", target: 0.5 },
-] as const;
+] ;
 
 type DayRecord = {
   done: number[];
