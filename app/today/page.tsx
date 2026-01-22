@@ -734,7 +734,7 @@ export default function TodayPage() {
                 <div className="space-y-4">
                   {subjects.map((s, i) => {
                     const d = done[i] || 0;
-                    const ratio = d / s.target;
+                    const ratio = d / Number(s.target);
 
                     return (
                       <div key={s.name} className="rounded-2xl border border-rose-200/60 bg-white/70 p-4 space-y-3">
