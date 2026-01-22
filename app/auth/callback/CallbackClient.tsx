@@ -2,29 +2,25 @@
 
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function CallbackClient() {
   const router = useRouter();
-  const params = useSearchParams();
+  const sp = useSearchParams();
 
   useEffect(() => {
+    const error = sp.get("error") || sp.get("error_description");
+    if (error) {
+      router.replace(`/login?error=${encodeURIComponent(error)}`);
+      return;
+    }
+
     (async () => {
-      // Supabase OAuth code flow：用 code 交換 session
-      const code = params.get("code");
-
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) {
-          console.error("[auth callback] exchange error:", error);
-          router.replace("/login?error=callback");
-          return;
-        }
-      }
-
-      router.replace("/today");
+      const { data } = await supabase.auth.getSession();
+      if (data.session) router.replace("/today");
+      else router.replace("/login?error=no_session");
     })();
-  }, [params, router]);
+  }, [router, sp]);
 
-  return <div className="p-6 text-sm text-zinc-600">Signing in...</div>;
+  return <div className="p-6">登入中...</div>;
 }
