@@ -12,7 +12,7 @@ const subjects = [
   { name: "刑法", target: 1.5 },
   { name: "公務員法", target: 1 },
   { name: "憲法", target: 0.5 },
-] ;
+];
 
 type DayRecord = {
   done: number[];
@@ -26,10 +26,13 @@ type DayRecord = {
   totalDone?: number;
   unlocked?: boolean;
 
-  // ✅ 新增：每科今天讀什麼（與 subjects 對齊）
+  // ✅ 每一天的「當天目標總時數」(避免你改目標後影響歷史)
+  dayTarget?: number;
+
+  // ✅ 每科今天讀什麼（與 subjects 對齊）
   subjectNotes?: string[];
 
-  // ✅ 新增：每日心得（日記，不上鎖）
+  // ✅ 每日心得（日記，不上鎖）
   diary?: string;
 
   // 本機 UI 狀態（一天一次）
@@ -263,9 +266,9 @@ export default function TodayPage() {
   const [done, setDone] = useState<number[]>(subjects.map(() => 0));
   const [partnerMessageDraft, setPartnerMessageDraft] = useState<string>("");
 
-  // ✅ 新增：每科今天讀什麼
+  // ✅ 每科今天讀什麼
   const [subjectNotes, setSubjectNotes] = useState<string[]>(subjects.map(() => ""));
-  // ✅ 新增：每日心得（日記，不上鎖）
+  // ✅ 每日心得（日記，不上鎖）
   const [diaryDraft, setDiaryDraft] = useState<string>("");
 
   // ✅ Storage paths（永久）
@@ -283,23 +286,26 @@ export default function TodayPage() {
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
 
-  // ====== 計算進度 / 解鎖 ======
-  const totalTarget = useMemo(() => subjects.reduce((s, x) => s + x.target, 0), []);
-  const localTotalDone = useMemo(() => done.reduce((sum, h) => sum + (Number(h) || 0), 0), [done]);
+  // ====== 回顧牆總時數（優先 all-time，沒有就顯示 30 天總和）======
+  const [allTimeTotal, setAllTimeTotal] = useState<number | null>(null);
+  const [totalLabel, setTotalLabel] = useState<string>("近30天總時數");
 
-  const computedUnlocked = totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3;
+  // ====== 計算進度 / 解鎖（今天）======
+  const totalTargetNow = useMemo(() => subjects.reduce((s, x) => s + Number(x.target || 0), 0), []);
+  const localTotalDone = useMemo(() => done.reduce((sum, h) => sum + (Number(h) || 0), 0), [done]);
 
   // ✅ 以「Supabase 同步回來的」為主（如果有），沒有就用當下 done
   const todayFromHistory = history[dateKey];
   const effectiveTotalDone =
     typeof todayFromHistory?.totalDone === "number" ? todayFromHistory.totalDone : localTotalDone;
 
-  const effectiveUnlocked = totalTarget === 0 ? false : effectiveTotalDone / totalTarget >= 2 / 3;
+  // ✅ 今天也用「當天目標」(如果今天從 Supabase 有 dayTarget，就用它；沒有就用目前 totalTargetNow)
+  const todayDayTarget =
+    typeof todayFromHistory?.dayTarget === "number" ? todayFromHistory.dayTarget : totalTargetNow;
 
-  const progress = totalTarget === 0 ? 0 : effectiveTotalDone / totalTarget;
-  const needHoursToUnlock = Math.max(0, (2 / 3) * totalTarget - effectiveTotalDone);
+  const effectiveUnlocked = todayDayTarget === 0 ? false : effectiveTotalDone / todayDayTarget >= 2 / 3;
+  const needHoursToUnlock = Math.max(0, (2 / 3) * todayDayTarget - effectiveTotalDone);
 
-  // 分頁 badge
   const unlockBadge = effectiveUnlocked ? "已解鎖" : `差 ${needHoursToUnlock.toFixed(1)}h`;
   const photosBadge = dailyPhotoPaths.length ? `${dailyPhotoPaths.length}張` : undefined;
 
@@ -314,13 +320,11 @@ export default function TodayPage() {
     if (typeof today?.couplePhotoPath === "string") setCouplePhotoPath(today.couplePhotoPath);
     if (Array.isArray(today?.dailyPhotoPaths)) setDailyPhotoPaths(today.dailyPhotoPaths);
 
-    // ✅ subjectNotes
     if (Array.isArray(today?.subjectNotes)) {
       const padded = subjects.map((_, i) => String(today.subjectNotes?.[i] ?? ""));
       setSubjectNotes(padded);
     }
 
-    // ✅ diary
     if (typeof today?.diary === "string") setDiaryDraft(today.diary);
   }, [dateKey]);
 
@@ -344,13 +348,14 @@ export default function TodayPage() {
             done: Array.isArray(row.done) ? row.done : subjects.map(() => 0),
             totalDone: typeof row.total_done === "number" ? row.total_done : next[row.date]?.totalDone,
             unlocked: typeof row.unlocked === "boolean" ? row.unlocked : next[row.date]?.unlocked,
+            dayTarget: typeof row.day_target === "number" ? row.day_target : next[row.date]?.dayTarget,
+
             partnerMessage:
               typeof row.partner_message === "string" ? row.partner_message : next[row.date]?.partnerMessage,
             couplePhotoPath:
               typeof row.couple_photo_path === "string" ? row.couple_photo_path : next[row.date]?.couplePhotoPath,
             dailyPhotoPaths: Array.isArray(row.daily_photo_paths) ? row.daily_photo_paths : next[row.date]?.dailyPhotoPaths,
 
-            // ✅ 新增：subjectNotes / diary
             subjectNotes: Array.isArray(row.subject_notes)
               ? row.subject_notes.map((x: any) => String(x ?? ""))
               : next[row.date]?.subjectNotes,
@@ -362,6 +367,23 @@ export default function TodayPage() {
         return next;
       });
 
+      // ✅ 回顧牆總時數：先嘗試 all-time rpc，沒有就用 30 天加總當 fallback
+      try {
+        const { data: sumData, error: sumErr } = await supabase.rpc("get_total_done_sum");
+        if (!sumErr) {
+          setAllTimeTotal(Number(sumData ?? 0));
+          setTotalLabel("統計以來總時數");
+        } else {
+          const sum30 = (data as any[]).reduce((acc, r) => acc + (Number(r.total_done) || 0), 0);
+          setAllTimeTotal(sum30);
+          setTotalLabel("近30天總時數");
+        }
+      } catch {
+        const sum30 = (data as any[]).reduce((acc, r) => acc + (Number(r.total_done) || 0), 0);
+        setAllTimeTotal(sum30);
+        setTotalLabel("近30天總時數");
+      }
+
       // 如果 Supabase 有今天資料，直接更新 TodayPage 狀態（以 Supabase 為主）
       const todayRow = (data as any[]).find((x) => x.date === dateKey);
       if (todayRow) {
@@ -370,13 +392,11 @@ export default function TodayPage() {
         if (typeof todayRow.couple_photo_path === "string") setCouplePhotoPath(todayRow.couple_photo_path);
         if (Array.isArray(todayRow.daily_photo_paths)) setDailyPhotoPaths(todayRow.daily_photo_paths);
 
-        // ✅ subjectNotes
         if (Array.isArray(todayRow.subject_notes)) {
           const padded = subjects.map((_, i) => String(todayRow.subject_notes?.[i] ?? ""));
           setSubjectNotes(padded);
         }
 
-        // ✅ diary
         if (typeof todayRow.diary === "string") setDiaryDraft(todayRow.diary);
       }
     })();
@@ -399,18 +419,19 @@ export default function TodayPage() {
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
 
-        // ✅ 新增
         subjectNotes: subjectNotes.length ? subjectNotes : undefined,
         diary: diaryDraft || undefined,
 
-        // 也把當天算出的寫回去（回顧牆可直接用）
         totalDone: localTotalDone,
+        dayTarget: totalTargetNow,
+
+        // ✅ 解鎖要用「當天目標」
         unlocked:
           typeof next[dateKey]?.unlocked === "boolean"
             ? next[dateKey]!.unlocked
-            : totalTarget === 0
+            : totalTargetNow === 0
             ? false
-            : localTotalDone / totalTarget >= 2 / 3,
+            : localTotalDone / totalTargetNow >= 2 / 3,
 
         unlockModalShown: next[dateKey]?.unlockModalShown ?? false,
       };
@@ -426,7 +447,7 @@ export default function TodayPage() {
     subjectNotes,
     diaryDraft,
     localTotalDone,
-    totalTarget,
+    totalTargetNow,
   ]);
 
   // ========== Supabase 寫入（debounce，避免狂打）==========
@@ -438,12 +459,11 @@ export default function TodayPage() {
             date: dateKey,
             done,
             totalDone: localTotalDone,
-            unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
+            dayTarget: totalTargetNow,
+            unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
             partnerMessage: partnerMessageDraft || undefined,
             couplePhotoPath: couplePhotoPath || undefined,
             dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
-
-            // ✅ 新增
             subjectNotes: subjectNotes.length ? subjectNotes : undefined,
             diary: diaryDraft || undefined,
           });
@@ -459,7 +479,7 @@ export default function TodayPage() {
     dateKey,
     done,
     localTotalDone,
-    totalTarget,
+    totalTargetNow,
     partnerMessageDraft,
     couplePhotoPath,
     dailyPhotoPaths,
@@ -513,19 +533,17 @@ export default function TodayPage() {
       if (upErr) throw upErr;
 
       setCouplePhotoPath(path);
-      setCouplePhotoVersion(Date.now()); // ✅ cache bust：覆蓋同一路徑才需要
+      setCouplePhotoVersion(Date.now());
 
-      // 立刻寫 DB
       await saveDailyToSupabase({
         date: dateKey,
         done,
         totalDone: localTotalDone,
-        unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
+        dayTarget: totalTargetNow,
+        unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: path,
         dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
-
-        // ✅ 新增
         subjectNotes: subjectNotes.length ? subjectNotes : undefined,
         diary: diaryDraft || undefined,
       });
@@ -570,17 +588,15 @@ export default function TodayPage() {
       const merged = [...newPaths, ...dailyPhotoPaths].slice(0, 24);
       setDailyPhotoPaths(merged);
 
-      // 立刻寫 DB
       await saveDailyToSupabase({
         date: dateKey,
         done,
         totalDone: localTotalDone,
-        unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
+        dayTarget: totalTargetNow,
+        unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: merged,
-
-        // ✅ 新增
         subjectNotes: subjectNotes.length ? subjectNotes : undefined,
         diary: diaryDraft || undefined,
       });
@@ -605,12 +621,11 @@ export default function TodayPage() {
         date: dateKey,
         done,
         totalDone: localTotalDone,
-        unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
+        dayTarget: totalTargetNow,
+        unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: next.length ? next : undefined,
-
-        // ✅ 新增
         subjectNotes: subjectNotes.length ? subjectNotes : undefined,
         diary: diaryDraft || undefined,
       });
@@ -629,13 +644,10 @@ export default function TodayPage() {
     <main className="min-h-screen bg-gradient-to-b from-amber-50 via-rose-50 to-orange-50 text-zinc-900">
       <ConfettiBurst active={confettiOn} />
 
-      {/* 手機底部 tab（拇指友善） */}
       <BottomTabBar tab={tab} setTab={setTab} unlockBadge={unlockBadge} photosBadge={photosBadge} />
 
-      {/* 底部 tab 會蓋住內容，預留空間 */}
       <div className="pb-28">
         <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
-          {/* Header */}
           <header className="space-y-2 text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white/70 px-4 py-2 text-sm text-rose-700 shadow-sm">
               <span>🌷</span>
@@ -647,18 +659,11 @@ export default function TodayPage() {
             </p>
           </header>
 
-          {/* 桌機 tabs（手機主要用底部 tab） */}
           <nav className="hidden sm:block rounded-3xl border border-rose-200/60 bg-white/70 p-3 shadow-sm">
             <div className="grid grid-cols-4 gap-2">
               <TabButton active={tab === "checkin"} onClick={() => setTab("checkin")} icon="📝" label="打卡" />
               <TabButton active={tab === "unlock"} onClick={() => setTab("unlock")} icon="🎁" label="解鎖" badge={unlockBadge} />
-              <TabButton
-                active={tab === "photos"}
-                onClick={() => setTab("photos")}
-                icon="📷"
-                label="照片/一句話"
-                badge={photosBadge}
-              />
+              <TabButton active={tab === "photos"} onClick={() => setTab("photos")} icon="📷" label="照片/一句話" badge={photosBadge} />
               <TabButton active={tab === "history"} onClick={() => setTab("history")} icon="🗓️" label="回顧牆" />
             </div>
           </nav>
@@ -666,19 +671,18 @@ export default function TodayPage() {
           {/* ====== Tab: 打卡 ====== */}
           {tab === "checkin" && (
             <div className="space-y-6">
-              {/* 總進度 */}
               <section className="rounded-3xl border border-amber-200/60 bg-white/80 p-5 shadow-sm space-y-4">
                 <div className="flex items-end justify-between gap-4">
                   <div>
                     <div className="text-sm text-zinc-600">今日總完成</div>
                     <div className="text-2xl font-semibold">
-                      {localTotalDone.toFixed(1)} / {totalTarget.toFixed(1)} 小時
+                      {localTotalDone.toFixed(1)} / {totalTargetNow.toFixed(1)} 小時
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-zinc-600">進度</div>
                     <div className="text-2xl font-semibold text-rose-700">
-                      {Math.round((totalTarget === 0 ? 0 : localTotalDone / totalTarget) * 100)}%
+                      {Math.round((totalTargetNow === 0 ? 0 : localTotalDone / totalTargetNow) * 100)}%
                     </div>
                   </div>
                 </div>
@@ -687,26 +691,26 @@ export default function TodayPage() {
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
                     style={{
-                      width: `${clamp((totalTarget === 0 ? 0 : (localTotalDone / totalTarget) * 100), 0, 100)}%`,
+                      width: `${clamp(totalTargetNow === 0 ? 0 : (localTotalDone / totalTargetNow) * 100, 0, 100)}%`,
                     }}
                   />
                 </div>
 
                 <div className="text-sm">
-                  {totalTarget !== 0 && localTotalDone / totalTarget >= 2 / 3 ? (
+                  {totalTargetNow !== 0 && localTotalDone / totalTargetNow >= 2 / 3 ? (
                     <span className="text-emerald-700 font-medium">✅ 已達成 2/3，解鎖成功！</span>
                   ) : (
                     <span className="text-amber-700">
                       還差{" "}
                       <span className="font-semibold">
-                        {Math.max(0, (2 / 3) * totalTarget - localTotalDone).toFixed(1)}
+                        {Math.max(0, (2 / 3) * totalTargetNow - localTotalDone).toFixed(1)}
                       </span>{" "}
                       小時就能解鎖
                     </span>
                   )}
                 </div>
 
-                {!(totalTarget !== 0 && localTotalDone / totalTarget >= 2 / 3) && (
+                {!(totalTargetNow !== 0 && localTotalDone / totalTargetNow >= 2 / 3) && (
                   <button
                     className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
                     onClick={() => setTab("unlock")}
@@ -716,7 +720,6 @@ export default function TodayPage() {
                 )}
               </section>
 
-              {/* 科目列表 */}
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                   <h2 className="text-lg font-semibold">今日目標（快速加減 0.5h）</h2>
@@ -734,7 +737,7 @@ export default function TodayPage() {
                 <div className="space-y-4">
                   {subjects.map((s, i) => {
                     const d = done[i] || 0;
-                    const ratio = d / Number(s.target);
+                    const ratio = d / Number(s.target || 1);
 
                     return (
                       <div key={s.name} className="rounded-2xl border border-rose-200/60 bg-white/70 p-4 space-y-3">
@@ -742,7 +745,9 @@ export default function TodayPage() {
                           <div className="font-medium text-zinc-900">
                             {s.name} <span className="text-zinc-500 text-sm">目標 {s.target}h</span>
                           </div>
-                          <div className="text-sm text-rose-700 font-medium">{Math.round(clamp(ratio, 0, 1) * 100)}%</div>
+                          <div className="text-sm text-rose-700 font-medium">
+                            {Math.round(clamp(ratio, 0, 1) * 100)}%
+                          </div>
                         </div>
 
                         <div className="h-2 w-full rounded-full bg-rose-100 overflow-hidden">
@@ -785,7 +790,6 @@ export default function TodayPage() {
                           </button>
                         </div>
 
-                        {/* ✅ 新增：今天讀什麼 */}
                         <div className="rounded-2xl border border-rose-200 bg-white/70 p-3">
                           <div className="text-xs font-medium text-zinc-700">今天讀什麼</div>
                           <textarea
@@ -822,14 +826,9 @@ export default function TodayPage() {
               >
                 <h2 className="text-lg font-semibold">🎁 解鎖區</h2>
 
-                {/* ✅ 不上鎖：每日心得日記 */}
                 <div className="rounded-2xl border border-rose-200 bg-white/90 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-zinc-900">📓 今日心得日記（不需解鎖）</div>
-                      <div className="text-xs text-zinc-500">不管今天有沒有達標，都可以寫；會同步到 Supabase。</div>
-                    </div>
-                  </div>
+                  <div className="text-sm font-medium text-zinc-900">📓 今日心得日記（不需解鎖）</div>
+                  <div className="text-xs text-zinc-500">不管今天有沒有達標，都可以寫；會同步到 Supabase。</div>
 
                   <textarea
                     className="mt-3 w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
@@ -843,7 +842,7 @@ export default function TodayPage() {
                 {!effectiveUnlocked ? (
                   <div className="space-y-4">
                     <div className="text-sm text-zinc-700 leading-relaxed">
-                      完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到內容。你已經很努力了，慢慢來也沒關係 🌷
+                      完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到內容。
                     </div>
 
                     <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
@@ -883,7 +882,6 @@ export default function TodayPage() {
           {/* ====== Tab: 照片/一句話 ====== */}
           {tab === "photos" && (
             <div className="space-y-6">
-              {/* 合照 */}
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -927,7 +925,6 @@ export default function TodayPage() {
                   </div>
                 </div>
 
-                {/* 一句話 */}
                 <div className="rounded-2xl border border-rose-200 bg-white/70 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -958,7 +955,6 @@ export default function TodayPage() {
                 </div>
               </section>
 
-              {/* 今日照片 */}
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -1023,6 +1019,12 @@ export default function TodayPage() {
                   <div>
                     <h2 className="text-lg font-semibold">🗓️ 回顧牆（跨裝置）</h2>
                     <p className="text-sm text-zinc-600">此處會顯示「Supabase 同步回來」的最近 30 天紀錄。</p>
+                    <p className="text-sm text-zinc-600">
+                      {totalLabel}：{" "}
+                      <span className="font-semibold text-rose-700">
+                        {(allTimeTotal ?? 0).toFixed(1)}h
+                      </span>
+                    </p>
                   </div>
 
                   <button
@@ -1052,20 +1054,23 @@ export default function TodayPage() {
                     {dates.map((d) => {
                       const r = history[d];
 
-                      // ✅ Step B：優先使用 Supabase 的 totalDone/unlocked（更準）
                       const dTotal =
                         typeof r?.totalDone === "number"
                           ? r.totalDone
                           : (r?.done || []).reduce((s, x) => s + (Number(x) || 0), 0);
 
+                      // ✅ 用「那一天的 dayTarget」，避免你改目標後影響歷史
+                      const dayTarget =
+                        typeof r?.dayTarget === "number" ? r.dayTarget : totalTargetNow;
+
                       const isUnlock =
                         typeof r?.unlocked === "boolean"
                           ? r.unlocked
-                          : totalTarget === 0
+                          : dayTarget === 0
                           ? false
-                          : dTotal / totalTarget >= 2 / 3;
+                          : dTotal / dayTarget >= 2 / 3;
 
-                      const ratio = totalTarget === 0 ? 0 : dTotal / totalTarget;
+                      const ratio = dayTarget === 0 ? 0 : dTotal / dayTarget;
                       const photos = r?.dailyPhotoPaths || [];
 
                       return (
@@ -1085,7 +1090,7 @@ export default function TodayPage() {
                             </div>
 
                             <div className="text-sm text-zinc-600">
-                              用功 {dTotal.toFixed(1)}h / 目標 {totalTarget.toFixed(1)}h（{Math.round(ratio * 100)}%）
+                              用功 {dTotal.toFixed(1)}h / 目標 {dayTarget.toFixed(1)}h（{Math.round(ratio * 100)}%）
                             </div>
                           </div>
 
@@ -1111,7 +1116,6 @@ export default function TodayPage() {
                             </div>
                           ) : null}
 
-                          {/* ✅ 加分：回顧牆也顯示日記（不鎖） */}
                           {r?.diary?.trim() ? (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
                               <span className="font-medium text-zinc-900">📓 日記：</span> {r.diary}
@@ -1132,7 +1136,6 @@ export default function TodayPage() {
         </div>
       </div>
 
-      {/* 解鎖彈窗 */}
       {showUnlockModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowUnlockModal(false)} />
@@ -1141,8 +1144,7 @@ export default function TodayPage() {
               <div className="text-3xl">🎉</div>
               <h3 className="text-xl font-semibold text-zinc-900">解鎖成功！</h3>
               <p className="text-sm text-zinc-600">
-                你已完成今日目標的 <span className="font-semibold text-rose-700">2/3</span>，現在可以解鎖「鼓勵訊息 / 合照 /
-                今日照片」✨
+                你已完成今日目標的 <span className="font-semibold text-rose-700">2/3</span>，現在可以解鎖「鼓勵訊息 / 合照 / 今日照片」✨
               </p>
             </div>
 
@@ -1174,11 +1176,12 @@ export default function TodayPage() {
   );
 }
 
-/** ✅ 寫入 daily_records（包含照片路徑、訊息、done、total_done、unlocked + subject_notes + diary） */
+/** ✅ 寫入 daily_records（包含照片路徑、訊息、done、total_done、unlocked + day_target + subject_notes + diary） */
 async function saveDailyToSupabase({
   date,
   done,
   totalDone,
+  dayTarget,
   unlocked,
   partnerMessage,
   couplePhotoPath,
@@ -1189,6 +1192,7 @@ async function saveDailyToSupabase({
   date: string;
   done: number[];
   totalDone: number;
+  dayTarget: number;
   unlocked: boolean;
   partnerMessage?: string;
   couplePhotoPath?: string;
@@ -1209,12 +1213,11 @@ async function saveDailyToSupabase({
     date,
     done,
     total_done: totalDone,
+    day_target: dayTarget,
     unlocked,
     partner_message: typeof partnerMessage === "string" ? partnerMessage : null,
     couple_photo_path: typeof couplePhotoPath === "string" ? couplePhotoPath : null,
     daily_photo_paths: Array.isArray(dailyPhotoPaths) ? dailyPhotoPaths : null,
-
-    // ✅ 新增
     subject_notes: Array.isArray(subjectNotes) ? subjectNotes : null,
     diary: typeof diary === "string" ? diary : null,
   };
@@ -1235,7 +1238,9 @@ async function fetchDailyFromSupabase() {
 
   const { data, error } = await supabase
     .from("daily_records")
-    .select("date, done, total_done, unlocked, partner_message, couple_photo_path, daily_photo_paths, subject_notes, diary")
+    .select(
+      "date, done, total_done, unlocked, day_target, partner_message, couple_photo_path, daily_photo_paths, subject_notes, diary"
+    )
     .eq("user_id", user.id)
     .order("date", { ascending: false })
     .limit(30);
