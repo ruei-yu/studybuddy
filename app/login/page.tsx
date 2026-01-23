@@ -10,29 +10,28 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function sendLink() {
-    if (!email) return;
-
     setLoading(true);
     try {
-     const { error } = await supabase.auth.signInWithOtp({
+      const redirectTo =
+        process.env.NEXT_PUBLIC_SITE_URL
+          ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
+          : `${window.location.origin}/auth/callback`;
+
+      const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
+        options: { emailRedirectTo: redirectTo },
       });
 
-      if (error) {
-        alert(`寄送失敗：${error.message}`);
-        return;
-      }
-
+      if (error) throw error;
       setSent(true);
     } catch (e: any) {
-      alert(`寄送失敗：${e?.message ?? "unknown error"}`);
+      alert(e?.message ?? "寄送失敗");
+      console.error("[sendLink] error:", e);
     } finally {
       setLoading(false);
     }
   }
+
 
 
   return (
