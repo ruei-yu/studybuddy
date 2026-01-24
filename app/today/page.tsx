@@ -22,10 +22,16 @@ type DayRecord = {
   totalDone?: number;
   unlocked?: boolean;
 
-  // 只用於本機回顧牆顯示（會從 study_progress + day_content 合併）
+  // 只用於本機回顧牆顯示（會從 study_progress + day_content + day_open_content 合併）
   partnerMessage?: string;
   couplePhotoPath?: string;
   dailyPhotoPaths?: string[];
+
+  // ✅ 新增：公開內容（兩人永遠互看）
+  myStudyNotes?: string[]; // 我每科讀什麼
+  partnerStudyNotes?: string[]; // 對方每科讀什麼
+  myDiary?: string; // 我心得
+  partnerDiary?: string; // 對方心得
 
   unlockModalShown?: boolean;
 };
@@ -43,16 +49,34 @@ type ContentRow = {
   daily_photo_paths: string[] | null;
 };
 
+type OpenRow = {
+  couple_id: string;
+  date: string; // YYYY-MM-DD
+  author_id: string;
+  author_role: Role;
+  study_notes: string[] | null;
+  unlock_diary: string | null;
+};
+
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
 
-function todayISO() {
-  const d = new Date();
+function toISODate(d: Date) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function todayISO() {
+  return toISODate(new Date());
+}
+
+function isoDaysAgo(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return toISODate(d);
 }
 
 function readHistory(): HistoryStore {
@@ -260,15 +284,21 @@ export default function TodayPage() {
   const [myRole, setMyRole] = useState<Role | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
 
-  // ✅ 我的內容（我自己上傳/輸入）
+  // ✅ 我的內容（照片/一句話：受解鎖規則影響）
   const [myMessageDraft, setMyMessageDraft] = useState<string>("");
   const [myCouplePhotoPath, setMyCouplePhotoPath] = useState<string | null>(null);
   const [myDailyPhotoPaths, setMyDailyPhotoPaths] = useState<string[]>([]);
 
-  // ✅ 對方內容（讀取到的；writer 未解鎖時，RLS 會讓它拿不到）
+  // ✅ 對方內容（照片/一句話：writer 未解鎖時可能拿不到）
   const [partnerMessage, setPartnerMessage] = useState<string>("");
   const [partnerCouplePhotoPath, setPartnerCouplePhotoPath] = useState<string | null>(null);
   const [partnerDailyPhotoPaths, setPartnerDailyPhotoPaths] = useState<string[]>([]);
+
+  // ✅ 新增：公開內容（永遠互看）
+  const [myStudyNotes, setMyStudyNotes] = useState<string[]>(subjects.map(() => ""));
+  const [partnerStudyNotes, setPartnerStudyNotes] = useState<string[]>(subjects.map(() => ""));
+  const [myDiaryDraft, setMyDiaryDraft] = useState<string>("");
+  const [partnerDiary, setPartnerDiary] = useState<string>("");
 
   const [couplePhotoVersion, setCouplePhotoVersion] = useState<number>(0);
 
@@ -302,7 +332,7 @@ export default function TodayPage() {
   const needHoursToUnlock = Math.max(0, (2 / 3) * totalTarget - localTotalDone);
   const unlockBadge = effectiveUnlocked ? "已解鎖" : `差 ${needHoursToUnlock.toFixed(1)}h`;
 
-  // ✅ Photos badge：顯示「我自己的照片數」（writer 未解鎖也能看到自己的）
+  // ✅ Photos badge：顯示「我自己的照片數」
   const photosBadge = myDailyPhotoPaths.length ? `${myDailyPhotoPaths.length}張` : undefined;
 
   // ✅ 0) 取得 profile + user id
@@ -331,7 +361,7 @@ export default function TodayPage() {
     if (today?.done?.length) setDone(today.done);
   }, [dateKey]);
 
-  // 2) 讀取：我的近 30 天進度（study_progress） + 今天內容（day_content）
+  // 2) 讀取：我的近 30 天進度（study_progress） + 今天內容（day_content） + 近 30 天公開內容（day_open_content）
   useEffect(() => {
     if (!coupleId || !myUserId || !myRole) return;
 
@@ -360,7 +390,7 @@ export default function TodayPage() {
         if (todayRow?.done && Array.isArray(todayRow.done)) setDone(todayRow.done);
       }
 
-      // 2-2) 抓今天內容（RLS 會自動過濾：writer 未解鎖拿不到 supporter 的那筆）
+      // 2-2) 抓今天內容（照片/一句話：RLS 會自動過濾）
       const { data: rows, error: contErr } = await fetchDayContent(coupleId, dateKey);
       if (contErr) {
         console.error("[fetchDayContent] error:", contErr);
@@ -389,19 +419,54 @@ export default function TodayPage() {
           ...ex,
           partnerMessage: other?.partner_message ?? ex.partnerMessage,
           couplePhotoPath: other?.couple_photo_path ?? ex.couplePhotoPath,
-          dailyPhotoPaths: Array.isArray(other?.daily_photo_paths)
-            ? other!.daily_photo_paths!
-            : ex.dailyPhotoPaths,
+          dailyPhotoPaths: Array.isArray(other?.daily_photo_paths) ? other!.daily_photo_paths! : ex.dailyPhotoPaths,
         };
         writeHistory(next);
         return next;
       });
+
+      // 2-3) 抓「近 30 天」公開內容（讀什麼/心得：永遠互看）
+      const fromDate = isoDaysAgo(29);
+      const { data: openRows, error: openErr } = await fetchOpenContentRange(coupleId, fromDate);
+      if (openErr) console.error("[fetchOpenContentRange] error:", openErr);
+
+      if (Array.isArray(openRows)) {
+        // today 的公開內容 → state
+        const todayMine = openRows.find((r) => r.date === dateKey && r.author_id === myUserId) ?? null;
+        const todayOther = openRows.find((r) => r.date === dateKey && r.author_id !== myUserId) ?? null;
+
+        setMyStudyNotes(normalizeStudyNotes(todayMine?.study_notes));
+        setPartnerStudyNotes(normalizeStudyNotes(todayOther?.study_notes));
+        setMyDiaryDraft(todayMine?.unlock_diary ?? "");
+        setPartnerDiary(todayOther?.unlock_diary ?? "");
+
+        // 近 30 天 → merge into history（回顧牆用）
+        setHistory((prev) => {
+          const next: HistoryStore = { ...prev };
+
+          for (const r of openRows) {
+            const d = r.date;
+            const ex = next[d] || { done: subjects.map(() => 0) };
+
+            const isMine = r.author_id === myUserId;
+            next[d] = {
+              ...ex,
+              myStudyNotes: isMine ? normalizeStudyNotes(r.study_notes) : ex.myStudyNotes,
+              partnerStudyNotes: !isMine ? normalizeStudyNotes(r.study_notes) : ex.partnerStudyNotes,
+              myDiary: isMine ? (r.unlock_diary ?? "") : ex.myDiary,
+              partnerDiary: !isMine ? (r.unlock_diary ?? "") : ex.partnerDiary,
+            };
+          }
+
+          writeHistory(next);
+          return next;
+        });
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coupleId, myUserId, myRole, dateKey]);
 
   useEffect(() => {
-    // 只要任一張合照（我的或對方）更新，就讓 img 強制刷新
     setCouplePhotoVersion(Date.now());
   }, [myCouplePhotoPath, partnerCouplePhotoPath]);
 
@@ -445,7 +510,7 @@ export default function TodayPage() {
     return () => window.clearTimeout(t);
   }, [coupleId, myUserId, dateKey, done, localTotalDone, effectiveUnlocked]);
 
-  // 5) 解鎖彈窗（writer 達標才會出現；supporter 永遠解鎖但也只會顯示一次）
+  // 5) 解鎖彈窗（維持原本規則）
   useEffect(() => {
     const today = history[dateKey];
     const alreadyShown = !!today?.unlockModalShown;
@@ -477,7 +542,7 @@ export default function TodayPage() {
   }
 
   // ================
-  // ✅ 上傳 / 刪除（只改資料來源 + 路徑加 role）
+  // ✅ 上傳 / 刪除（原本：照片/一句話）
   // ================
   async function uploadCouplePhoto(file: File | null) {
     if (!file) return;
@@ -485,7 +550,7 @@ export default function TodayPage() {
 
     setUploadingCouple(true);
     try {
-      const path = `${coupleId}/couple_${myRole}.jpg`; // ✅ 不互相覆蓋
+      const path = `${coupleId}/couple_${myRole}.jpg`;
 
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
         upsert: true,
@@ -524,7 +589,7 @@ export default function TodayPage() {
       for (let i = 0; i < maxAdd; i++) {
         const f = files[i];
         const filename = safeName(f.name);
-        const path = `${coupleId}/${dateKey}/${myRole}/daily_${Date.now()}_${i}_${filename}`; // ✅ role folder
+        const path = `${coupleId}/${dateKey}/${myRole}/daily_${Date.now()}_${i}_${filename}`;
 
         const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, f, {
           upsert: true,
@@ -578,12 +643,10 @@ export default function TodayPage() {
     }
   }
 
-  // ✅ 顯示：supporter 永遠能看對方；writer 要解鎖才看得到對方（RLS 會擋掉，這裡再加一層 UI 遮罩更清楚）
+  // ✅ 顯示：supporter 永遠能看對方；writer 要解鎖才看得到對方（照片/一句話）
   const canSeePartner = myRole === "supporter" || effectiveUnlocked;
 
-  // ✅ 本頁合照顯示策略：
-  // - supporter：優先顯示「對方（writer）」的合照，如果沒有就顯示自己的
-  // - writer：未解鎖時只顯示自己的；解鎖後優先顯示 supporter 的
+  // ✅ 合照顯示策略（原本）
   const displayCouplePath =
     myRole === "supporter"
       ? partnerCouplePhotoPath || myCouplePhotoPath
@@ -593,15 +656,15 @@ export default function TodayPage() {
 
   const coupleImgSrc = displayCouplePath ? `${publicUrl(displayCouplePath)}?t=${couplePhotoVersion || 0}` : null;
 
-  // ✅ 今日照片顯示策略：
-  // - writer 未解鎖：只秀自己的
-  // - 其他：優先秀對方（如果有），沒有就秀自己的（避免 UI 改太大）
+  // ✅ 今日照片顯示策略（原本）
   const displayDailyPhotos =
     myRole === "writer" && !effectiveUnlocked
       ? myDailyPhotoPaths
-      : (partnerDailyPhotoPaths.length ? partnerDailyPhotoPaths : myDailyPhotoPaths);
+      : partnerDailyPhotoPaths.length
+      ? partnerDailyPhotoPaths
+      : myDailyPhotoPaths;
 
-  // ✅ unlock tab 顯示的一句話（顯示對方的內容）
+  // ✅ unlock tab 顯示的一句話（原本：顯示對方的鼓勵）
   const unlockMessageText =
     canSeePartner && partnerMessage.trim()
       ? partnerMessage.trim()
@@ -611,8 +674,20 @@ export default function TodayPage() {
 
   const dates = useMemo(() => sortDatesDesc(Object.keys(history)), [history]);
 
+  // ✅ 小工具：存公開內容（讀什麼/心得）
+  async function saveOpenNow(nextStudyNotes?: string[], nextDiary?: string) {
+    if (!coupleId || !myRole) return;
+    await saveMyOpenContent({
+      coupleId,
+      date: dateKey,
+      myRole,
+      studyNotes: Array.isArray(nextStudyNotes) ? nextStudyNotes : myStudyNotes,
+      unlockDiary: typeof nextDiary === "string" ? nextDiary : myDiaryDraft,
+    });
+  }
+
   // =======================
-  // ✅ UI（保留你原本的）
+  // ✅ UI
   // =======================
   return (
     <main className="min-h-screen bg-gradient-to-b from-amber-50 via-rose-50 to-orange-50 text-zinc-900">
@@ -684,7 +759,7 @@ export default function TodayPage() {
                 <div className="h-3 w-full rounded-full bg-rose-100 overflow-hidden">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
-                    style={{ width: `${clamp((totalTarget === 0 ? 0 : (localTotalDone / totalTarget) * 100), 0, 100)}%` }}
+                    style={{ width: `${clamp(totalTarget === 0 ? 0 : (localTotalDone / totalTarget) * 100, 0, 100)}%` }}
                   />
                 </div>
 
@@ -694,9 +769,7 @@ export default function TodayPage() {
                   ) : (
                     <span className="text-amber-700">
                       還差{" "}
-                      <span className="font-semibold">
-                        {Math.max(0, (2 / 3) * totalTarget - localTotalDone).toFixed(1)}
-                      </span>{" "}
+                      <span className="font-semibold">{Math.max(0, (2 / 3) * totalTarget - localTotalDone).toFixed(1)}</span>{" "}
                       小時就能解鎖
                     </span>
                   )}
@@ -727,6 +800,9 @@ export default function TodayPage() {
                   {subjects.map((s, i) => {
                     const d = done[i] || 0;
                     const ratio = d / s.target;
+
+                    const myNote = myStudyNotes[i] ?? "";
+                    const partnerNote = partnerStudyNotes[i] ?? "";
 
                     return (
                       <div key={s.name} className="rounded-2xl border border-rose-200/60 bg-white/70 p-4 space-y-3">
@@ -766,7 +842,6 @@ export default function TodayPage() {
                               setDone((prev) => prev.map((x, idx) => (idx === i ? (isNaN(v) ? 0 : v) : x)));
                             }}
                           />
-
                           <button
                             className="rounded-2xl border border-rose-200 bg-white/80 py-3 font-semibold text-rose-700 active:scale-[0.99]"
                             onClick={() =>
@@ -777,7 +852,46 @@ export default function TodayPage() {
                           </button>
                         </div>
 
-                        <div className="text-xs text-zinc-500">小提醒：每次變動會在 0.6 秒後自動同步 Supabase</div>
+                        {/* ✅ 每科「今天讀什麼」（公開：兩人互看） */}
+                        <div className="rounded-2xl border border-rose-200 bg-white/80 p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-medium text-zinc-900">📚 今天讀什麼（你自己）</div>
+                            <div className="text-[11px] text-zinc-500">（兩個人都看得到）</div>
+                          </div>
+
+                          <textarea
+                            className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                            rows={2}
+                            placeholder={`例如：${s.name} - 第X章 / 題目練習 / 筆記重點...`}
+                            value={myNote}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setMyStudyNotes((prev) => prev.map((x, idx) => (idx === i ? v : x)));
+                            }}
+                            onBlur={async () => {
+                              const next = myStudyNotes.map((x, idx) => (idx === i ? myNote : x));
+                              await saveOpenNow(next, undefined);
+                              // 同步進回顧牆快取
+                              setHistory((prev) => {
+                                const nextH: HistoryStore = { ...prev };
+                                const ex = nextH[dateKey] || { done: subjects.map(() => 0) };
+                                nextH[dateKey] = { ...ex, myStudyNotes: next };
+                                writeHistory(nextH);
+                                return nextH;
+                              });
+                            }}
+                          />
+
+                          {partnerNote.trim() ? (
+                            <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
+                              <span className="font-medium text-rose-700">對方今天讀：</span> {partnerNote}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-zinc-500">對方這科今天還沒寫內容～</div>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-zinc-500">小提醒：每次變動會在 0.6 秒後自動同步 Supabase（時數）；文字內容在離開輸入框時同步。</div>
                       </div>
                     );
                   })}
@@ -803,7 +917,7 @@ export default function TodayPage() {
                 {!effectiveUnlocked ? (
                   <div className="space-y-4">
                     <div className="text-sm text-zinc-700 leading-relaxed">
-                      完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到內容。你已經很努力了，慢慢來也沒關係 🌷
+                      完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到「鼓勵訊息 / 合照 / 今日照片」🌷
                     </div>
 
                     <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
@@ -820,7 +934,7 @@ export default function TodayPage() {
                 ) : (
                   <div className="space-y-4">
                     <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4">
-                      <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話</div>
+                      <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話（鼓勵訊息）</div>
                       <div className="text-base text-zinc-900 leading-relaxed">{unlockMessageText}</div>
                     </div>
 
@@ -832,6 +946,41 @@ export default function TodayPage() {
                     </button>
                   </div>
                 )}
+
+                {/* ✅ 心得日記：不管有沒有解鎖都能寫，而且兩個人互看 */}
+                <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold text-zinc-900">📝 今日心得日記（永遠可寫／永遠互看）</div>
+                    <div className="text-[11px] text-zinc-500">（不受解鎖影響）</div>
+                  </div>
+
+                  <textarea
+                    className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                    rows={4}
+                    placeholder="寫下今天的心得、卡住的點、明天要怎麼做、想對彼此說的話…"
+                    value={myDiaryDraft}
+                    onChange={(e) => setMyDiaryDraft(e.target.value)}
+                    onBlur={async () => {
+                      await saveOpenNow(undefined, myDiaryDraft);
+                      setHistory((prev) => {
+                        const nextH: HistoryStore = { ...prev };
+                        const ex = nextH[dateKey] || { done: subjects.map(() => 0) };
+                        nextH[dateKey] = { ...ex, myDiary: myDiaryDraft };
+                        writeHistory(nextH);
+                        return nextH;
+                      });
+                    }}
+                  />
+
+                  {partnerDiary.trim() ? (
+                    <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
+                      <div className="font-medium text-rose-700 mb-1">對方的心得：</div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{partnerDiary}</div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-zinc-500">對方今天還沒寫心得～</div>
+                  )}
+                </div>
               </section>
             </div>
           )}
@@ -864,9 +1013,7 @@ export default function TodayPage() {
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-rose-700/70">
                         <div className="text-3xl">📷</div>
-                        <div className="text-sm">
-                          {displayCouplePath ? "（合照已保存，但目前不可顯示）" : "在這裡放你們的合照（永久保存）"}
-                        </div>
+                        <div className="text-sm">{displayCouplePath ? "（合照已保存，但目前不可顯示）" : "在這裡放你們的合照（永久保存）"}</div>
                         <div className="text-xs text-zinc-500">（跨裝置同步 / 永久網址）</div>
                       </div>
                     )}
@@ -938,9 +1085,7 @@ export default function TodayPage() {
                 </div>
 
                 {displayDailyPhotos.length === 0 ? (
-                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">
-                    還沒有照片～上傳 1～3 張，回顧時會很有成就感 ✨
-                  </div>
+                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">還沒有照片～上傳 1～3 張，回顧時會很有成就感 ✨</div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {displayDailyPhotos.map((path) => (
@@ -950,7 +1095,6 @@ export default function TodayPage() {
                           <img src={publicUrl(path)} alt={path} className="h-full w-full object-cover" />
                         </div>
 
-                        {/* ✅ 只能刪自己的照片（避免刪到對方） */}
                         {myDailyPhotoPaths.includes(path) ? (
                           <button
                             className="absolute right-2 top-2 rounded-full bg-white/90 border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 active:scale-[0.99]"
@@ -978,7 +1122,10 @@ export default function TodayPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-semibold">🗓️ 回顧牆（跨裝置）</h2>
-                    <p className="text-sm text-zinc-600">此處會顯示你自己的「打卡進度」；內容顯示會依角色與解鎖規則自動遮蔽。</p>
+                    <p className="text-sm text-zinc-600">
+                      這裡會顯示你自己的「打卡進度」；照片/鼓勵訊息仍依解鎖規則遮蔽。<br />
+                      ✅ 另外：各科「讀什麼」+「心得日記」屬於公開內容，兩人永遠互看。
+                    </p>
                   </div>
 
                   <button
@@ -995,9 +1142,7 @@ export default function TodayPage() {
                 </div>
 
                 {dates.length === 0 ? (
-                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">
-                    還沒有紀錄～從今天開始累積，回顧牆會越來越可愛 ✨
-                  </div>
+                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">還沒有紀錄～從今天開始累積，回顧牆會越來越可愛 ✨</div>
                 ) : (
                   <div className="space-y-4">
                     {dates.map((d) => {
@@ -1020,6 +1165,15 @@ export default function TodayPage() {
                       const ratio = totalTarget === 0 ? 0 : dTotal / totalTarget;
                       const photos = (r?.dailyPhotoPaths || []) as string[];
 
+                      const myNotes = normalizeStudyNotes(r?.myStudyNotes);
+                      const ptNotes = normalizeStudyNotes(r?.partnerStudyNotes);
+
+                      const myDiary = (r?.myDiary ?? "").trim();
+                      const ptDiary = (r?.partnerDiary ?? "").trim();
+
+                      const hasAnyNotes =
+                        myNotes.some((x) => x.trim()) || ptNotes.some((x) => x.trim());
+
                       return (
                         <div key={d} className="rounded-2xl border border-rose-200 bg-white/70 p-4 space-y-3">
                           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -1039,6 +1193,7 @@ export default function TodayPage() {
                             </div>
                           </div>
 
+                          {/* 照片（仍受解鎖影響） */}
                           {photos.length === 0 ? (
                             <div className="text-sm text-zinc-500">這天沒有照片或你尚未解鎖可見內容。</div>
                           ) : (
@@ -1054,12 +1209,65 @@ export default function TodayPage() {
                             </div>
                           )}
 
+                          {/* 一句話（仍受解鎖影響） */}
                           {r?.partnerMessage?.trim() ? (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
                               <span className="font-medium text-rose-700">一句話：</span>{" "}
                               {isUnlock ? r.partnerMessage : "（未解鎖：達到 2/3 後才會看到 rueiyu 上傳的內容 💛）"}
                             </div>
                           ) : null}
+
+                          {/* ✅ 公開：各科今天讀什麼（兩人互看） */}
+                          {hasAnyNotes ? (
+                            <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-2">
+                              <div className="font-medium text-zinc-900">📚 各科今天讀什麼（兩人互看）</div>
+
+                              <div className="space-y-2">
+                                {subjects.map((s, idx) => {
+                                  const a = (myNotes[idx] ?? "").trim();
+                                  const b = (ptNotes[idx] ?? "").trim();
+                                  if (!a && !b) return null;
+
+                                  return (
+                                    <div key={s.name} className="rounded-2xl border border-rose-200 bg-white/80 p-3 text-sm">
+                                      <div className="font-medium text-rose-700 mb-1">{s.name}</div>
+                                      {a ? (
+                                        <div className="text-zinc-700">
+                                          <span className="font-medium">我：</span> {a}
+                                        </div>
+                                      ) : null}
+                                      {b ? (
+                                        <div className="text-zinc-700 mt-1">
+                                          <span className="font-medium">對方：</span> {b}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-zinc-500">這天沒有填「讀什麼」內容～</div>
+                          )}
+
+                          {/* ✅ 公開：心得日記（兩人互看） */}
+                          {(myDiary || ptDiary) ? (
+                            <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-2">
+                              <div className="font-medium text-zinc-900">📝 心得日記（兩人互看）</div>
+                              {myDiary ? (
+                                <div className="rounded-2xl border border-rose-200 bg-white/80 p-3 text-sm text-zinc-700 whitespace-pre-wrap">
+                                  <span className="font-medium text-rose-700">我：</span> {myDiary}
+                                </div>
+                              ) : null}
+                              {ptDiary ? (
+                                <div className="rounded-2xl border border-rose-200 bg-white/80 p-3 text-sm text-zinc-700 whitespace-pre-wrap">
+                                  <span className="font-medium text-rose-700">對方：</span> {ptDiary}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-zinc-500">這天沒有寫心得日記～</div>
+                          )}
                         </div>
                       );
                     })}
@@ -1071,7 +1279,8 @@ export default function TodayPage() {
 
           <footer className="text-xs text-zinc-500 text-center">
             ✅ 照片存 Supabase Storage（public bucket）→ 永久 URL、跨裝置同步。<br />
-            ✅ 規則：supporter 永遠可看全部；writer 未達 2/3 前只看自己上傳，達標後才看得到 supporter 上傳內容。
+            ✅ 照片/鼓勵訊息：supporter 永遠可看全部；writer 未達 2/3 前只看自己上傳，達標後才看得到 supporter 上傳內容。<br />
+            ✅ 讀什麼/心得日記：永遠互看（不受解鎖影響）。
           </footer>
         </div>
       </div>
@@ -1114,6 +1323,13 @@ export default function TodayPage() {
       )}
     </main>
   );
+}
+
+/** ✅ 工具：把 study_notes 正規化成固定長度 */
+function normalizeStudyNotes(input: any): string[] {
+  const base = subjects.map(() => "");
+  if (!Array.isArray(input)) return base;
+  return base.map((_, i) => (typeof input[i] === "string" ? input[i] : ""));
 }
 
 /** ✅ 存我的進度：study_progress */
@@ -1164,7 +1380,7 @@ async function fetchMyProgress(userId: string) {
   return { data, error };
 }
 
-/** ✅ 存我的內容：day_content（每人每天一筆，互不覆蓋） */
+/** ✅ 存我的內容：day_content（照片/一句話，受原本解鎖規則影響） */
 async function saveMyContent({
   coupleId,
   date,
@@ -1203,7 +1419,7 @@ async function saveMyContent({
   return { error };
 }
 
-/** ✅ 讀今天內容：day_content（RLS 會自動過濾對方內容） */
+/** ✅ 讀今天內容：day_content（照片/一句話；RLS 會自動過濾對方內容） */
 async function fetchDayContent(coupleId: string, date: string) {
   const { data, error } = await supabase
     .from("day_content")
@@ -1212,6 +1428,54 @@ async function fetchDayContent(coupleId: string, date: string) {
     .eq("date", date);
 
   return { data: (data ?? []) as ContentRow[], error };
+}
+
+/** ✅ 存公開內容：day_open_content（讀什麼/心得；永遠互看） */
+async function saveMyOpenContent({
+  coupleId,
+  date,
+  myRole,
+  studyNotes,
+  unlockDiary,
+}: {
+  coupleId: string;
+  date: string;
+  myRole: Role;
+  studyNotes: string[];
+  unlockDiary: string;
+}) {
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+
+  if (userErr) return { error: userErr };
+  if (!user) return { error: new Error("No user session (not logged in)") };
+
+  const payload: any = {
+    couple_id: coupleId,
+    date,
+    author_id: user.id,
+    author_role: myRole,
+    study_notes: Array.isArray(studyNotes) ? studyNotes : null,
+    unlock_diary: typeof unlockDiary === "string" ? unlockDiary : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("day_open_content").upsert(payload, { onConflict: "author_id,date" });
+  return { error };
+}
+
+/** ✅ 讀近 30 天公開內容：day_open_content（永遠互看） */
+async function fetchOpenContentRange(coupleId: string, fromDateISO: string) {
+  const { data, error } = await supabase
+    .from("day_open_content")
+    .select("couple_id, date, author_id, author_role, study_notes, unlock_diary")
+    .eq("couple_id", coupleId)
+    .gte("date", fromDateISO)
+    .order("date", { ascending: false });
+
+  return { data: (data ?? []) as OpenRow[], error };
 }
 
 /** ✅ 取自己的 couple_id / role */
