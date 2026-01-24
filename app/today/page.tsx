@@ -855,7 +855,7 @@ export default function TodayPage() {
                         {/* ✅ 每科「今天讀什麼」（公開：兩人互看） */}
                         <div className="rounded-2xl border border-rose-200 bg-white/80 p-3 space-y-2">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-medium text-zinc-900">📚 今天讀什麼（你自己）</div>
+                            <div className="text-sm font-medium text-zinc-900">📚 今天讀什麼</div>
                             <div className="text-[11px] text-zinc-500">（兩個人都看得到）</div>
                           </div>
 
@@ -1278,9 +1278,7 @@ export default function TodayPage() {
           )}
 
           <footer className="text-xs text-zinc-500 text-center">
-            ✅ 照片存 Supabase Storage（public bucket）→ 永久 URL、跨裝置同步。<br />
-            ✅ 照片/鼓勵訊息：supporter 永遠可看全部；writer 未達 2/3 前只看自己上傳，達標後才看得到 supporter 上傳內容。<br />
-            ✅ 讀什麼/心得日記：永遠互看（不受解鎖影響）。
+            💫星光不負趕路者💫
           </footer>
         </div>
       </div>
