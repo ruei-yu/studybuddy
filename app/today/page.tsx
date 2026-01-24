@@ -12,23 +12,21 @@ const subjects = [
   { name: "刑法", target: 1.5 },
   { name: "公務員法", target: 1 },
   { name: "憲法", target: 0.5 },
-];
+] as const;
 
 type DayRecord = {
   done: number[];
   partnerMessage?: string;
 
+  // Supabase Storage 永久路徑（跨裝置）
   couplePhotoPath?: string;
   dailyPhotoPaths?: string[];
 
+  // Supabase 欄位（更準）
   totalDone?: number;
   unlocked?: boolean;
 
-  dayTarget?: number;
-
-  subjectNotes?: string[];
-  diary?: string;
-
+  // 本機 UI 狀態（一天一次）
   unlockModalShown?: boolean;
 };
 
@@ -61,20 +59,24 @@ function writeHistory(store: HistoryStore) {
   localStorage.setItem("studybuddy_history_v1", JSON.stringify(store));
 }
 
+/** 日期新→舊 */
 function sortDatesDesc(dates: string[]) {
   return dates.slice().sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
 }
 
+/** 取得 public 永久 URL（bucket 必須是 public） */
 function publicUrl(path: string) {
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
 
+/** 檔名安全化 */
 function safeName(name: string) {
   const cleaned = name.replace(/[^\w.\-]+/g, "_");
   return cleaned.length ? cleaned : `file_${Date.now()}`;
 }
 
+/** 小彩帶 */
 function ConfettiBurst({ active }: { active: boolean }) {
   const pieces = useMemo(() => {
     if (!active) return [];
@@ -139,6 +141,7 @@ function ConfettiBurst({ active }: { active: boolean }) {
   );
 }
 
+/** 上方 tabs（桌機用） */
 function TabButton({
   active,
   onClick,
@@ -178,6 +181,7 @@ function TabButton({
   );
 }
 
+/** 手機底部 tab bar */
 function BottomTabBar({
   tab,
   setTab,
@@ -243,49 +247,56 @@ export default function TodayPage() {
   const dateKey = useMemo(() => todayISO(), []);
   const unlockSectionRef = useRef<HTMLElement | null>(null);
 
+  // 分頁
   const [tab, setTab] = useState<TabKey>("checkin");
 
+  // Local/Supabase Store
   const [history, setHistory] = useState<HistoryStore>({});
   const [done, setDone] = useState<number[]>(subjects.map(() => 0));
   const [partnerMessageDraft, setPartnerMessageDraft] = useState<string>("");
 
-  // ✅ 你本來就有，現在真的會用到
+  // ✅ coupleId / role（共享的關鍵）
   const [coupleId, setCoupleId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
 
-  const [subjectNotes, setSubjectNotes] = useState<string[]>(subjects.map(() => ""));
-  const [diaryDraft, setDiaryDraft] = useState<string>("");
-
+  // Storage paths（永久）
   const [couplePhotoPath, setCouplePhotoPath] = useState<string | null>(null);
   const [dailyPhotoPaths, setDailyPhotoPaths] = useState<string[]>([]);
 
+  // cache bust：只需要對「固定路徑覆蓋」的合照處理
   const [couplePhotoVersion, setCouplePhotoVersion] = useState<number>(0);
 
+  // 上傳狀態
   const [uploadingCouple, setUploadingCouple] = useState(false);
   const [uploadingDaily, setUploadingDaily] = useState(false);
 
+  // UI states
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
 
-  const [allTimeTotal, setAllTimeTotal] = useState<number | null>(null);
-  const [totalLabel, setTotalLabel] = useState<string>("近30天總時數");
-
-  // ====== 計算（今天）======
-  const totalTargetNow = useMemo(() => subjects.reduce((s, x) => s + Number(x.target || 0), 0), []);
+  // 計算進度 / 解鎖
+  const totalTarget = useMemo(() => subjects.reduce((s, x) => s + x.target, 0), []);
   const localTotalDone = useMemo(() => done.reduce((sum, h) => sum + (Number(h) || 0), 0), [done]);
 
+  // 以「Supabase 同步回來的」為主（如果有），沒有就用當下 done
   const todayFromHistory = history[dateKey];
-  const effectiveTotalDone = typeof todayFromHistory?.totalDone === "number" ? todayFromHistory.totalDone : localTotalDone;
+  const effectiveTotalDone =
+    typeof todayFromHistory?.totalDone === "number" ? todayFromHistory.totalDone : localTotalDone;
 
-  const todayDayTarget = typeof todayFromHistory?.dayTarget === "number" ? todayFromHistory.dayTarget : totalTargetNow;
+  const effectiveUnlocked =
+    typeof todayFromHistory?.unlocked === "boolean"
+      ? todayFromHistory.unlocked
+      : totalTarget === 0
+      ? false
+      : effectiveTotalDone / totalTarget >= 2 / 3;
 
-  const effectiveUnlocked = todayDayTarget === 0 ? false : effectiveTotalDone / todayDayTarget >= 2 / 3;
-  const needHoursToUnlock = Math.max(0, (2 / 3) * todayDayTarget - effectiveTotalDone);
+  const needHoursToUnlock = Math.max(0, (2 / 3) * totalTarget - effectiveTotalDone);
 
+  // 分頁 badge
   const unlockBadge = effectiveUnlocked ? "已解鎖" : `差 ${needHoursToUnlock.toFixed(1)}h`;
   const photosBadge = dailyPhotoPaths.length ? `${dailyPhotoPaths.length}張` : undefined;
 
-  // ✅ 初始化：抓自己的 couple_id / role
+  // ✅ 初始化：先抓自己的 couple_id / role
   useEffect(() => {
     (async () => {
       const { profile, error } = await getMyProfile();
@@ -298,7 +309,7 @@ export default function TodayPage() {
     })();
   }, []);
 
-  // ========== Step A：先讀本機 ==========
+  // Step A：先讀本機（離線也能看）
   useEffect(() => {
     const store = readHistory();
     setHistory(store);
@@ -308,18 +319,10 @@ export default function TodayPage() {
     if (typeof today?.partnerMessage === "string") setPartnerMessageDraft(today.partnerMessage);
     if (typeof today?.couplePhotoPath === "string") setCouplePhotoPath(today.couplePhotoPath);
     if (Array.isArray(today?.dailyPhotoPaths)) setDailyPhotoPaths(today.dailyPhotoPaths);
-
-    if (Array.isArray(today?.subjectNotes)) {
-      const padded = subjects.map((_, i) => String(today.subjectNotes?.[i] ?? ""));
-      setSubjectNotes(padded);
-    }
-
-    if (typeof today?.diary === "string") setDiaryDraft(today.diary);
   }, [dateKey]);
 
-  // ========== Step A：再從 Supabase 同步近 30 天 ==========
+  // Step A：再從 Supabase 同步近 30 天（跨裝置）——改成用 couple_id
   useEffect(() => {
-    // ✅ 等 coupleId 有了才同步（不然會查不到）
     if (!coupleId) return;
 
     (async () => {
@@ -330,6 +333,7 @@ export default function TodayPage() {
       }
       if (!data) return;
 
+      // 回灌 history + 同步今天畫面
       setHistory((prev) => {
         const next: HistoryStore = { ...prev };
 
@@ -339,17 +343,11 @@ export default function TodayPage() {
             done: Array.isArray(row.done) ? row.done : subjects.map(() => 0),
             totalDone: typeof row.total_done === "number" ? row.total_done : next[row.date]?.totalDone,
             unlocked: typeof row.unlocked === "boolean" ? row.unlocked : next[row.date]?.unlocked,
-            dayTarget: typeof row.day_target === "number" ? row.day_target : next[row.date]?.dayTarget,
-
-            partnerMessage: typeof row.partner_message === "string" ? row.partner_message : next[row.date]?.partnerMessage,
+            partnerMessage:
+              typeof row.partner_message === "string" ? row.partner_message : next[row.date]?.partnerMessage,
             couplePhotoPath:
               typeof row.couple_photo_path === "string" ? row.couple_photo_path : next[row.date]?.couplePhotoPath,
             dailyPhotoPaths: Array.isArray(row.daily_photo_paths) ? row.daily_photo_paths : next[row.date]?.dailyPhotoPaths,
-
-            subjectNotes: Array.isArray(row.subject_notes)
-              ? row.subject_notes.map((x: any) => String(x ?? ""))
-              : next[row.date]?.subjectNotes,
-            diary: typeof row.diary === "string" ? row.diary : next[row.date]?.diary,
           };
         }
 
@@ -357,46 +355,24 @@ export default function TodayPage() {
         return next;
       });
 
-      // ✅ 統計總時數：改成吃 couple_id（需要你建立 RPC，我下面會給 SQL）
-      try {
-        const { data: sumData, error: sumErr } = await supabase.rpc("get_total_done_sum", { p_couple_id: coupleId });
-        if (!sumErr) {
-          setAllTimeTotal(Number(sumData ?? 0));
-          setTotalLabel("統計以來總時數");
-        } else {
-          const sum30 = (data as any[]).reduce((acc, r) => acc + (Number(r.total_done) || 0), 0);
-          setAllTimeTotal(sum30);
-          setTotalLabel("近30天總時數");
-        }
-      } catch {
-        const sum30 = (data as any[]).reduce((acc, r) => acc + (Number(r.total_done) || 0), 0);
-        setAllTimeTotal(sum30);
-        setTotalLabel("近30天總時數");
-      }
-
+      // 如果 Supabase 有今天資料，直接更新 TodayPage 狀態（以 Supabase 為主）
       const todayRow = (data as any[]).find((x) => x.date === dateKey);
       if (todayRow) {
         if (Array.isArray(todayRow.done)) setDone(todayRow.done);
         if (typeof todayRow.partner_message === "string") setPartnerMessageDraft(todayRow.partner_message);
         if (typeof todayRow.couple_photo_path === "string") setCouplePhotoPath(todayRow.couple_photo_path);
         if (Array.isArray(todayRow.daily_photo_paths)) setDailyPhotoPaths(todayRow.daily_photo_paths);
-
-        if (Array.isArray(todayRow.subject_notes)) {
-          const padded = subjects.map((_, i) => String(todayRow.subject_notes?.[i] ?? ""));
-          setSubjectNotes(padded);
-        }
-
-        if (typeof todayRow.diary === "string") setDiaryDraft(todayRow.diary);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateKey, coupleId]);
 
+  // 合照路徑變更就 bust（避免看到舊圖）
   useEffect(() => {
     if (couplePhotoPath) setCouplePhotoVersion(Date.now());
   }, [couplePhotoPath]);
 
-  // ========== 本機快取 ==========
+  // 本機快取（離線保留 + UI 秒開）
   useEffect(() => {
     setHistory((prev) => {
       const next: HistoryStore = { ...prev };
@@ -407,39 +383,24 @@ export default function TodayPage() {
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
 
-        subjectNotes: subjectNotes.length ? subjectNotes : undefined,
-        diary: diaryDraft || undefined,
-
         totalDone: localTotalDone,
-        dayTarget: totalTargetNow,
-
         unlocked:
           typeof next[dateKey]?.unlocked === "boolean"
             ? next[dateKey]!.unlocked
-            : totalTargetNow === 0
+            : totalTarget === 0
             ? false
-            : localTotalDone / totalTargetNow >= 2 / 3,
+            : localTotalDone / totalTarget >= 2 / 3,
 
         unlockModalShown: next[dateKey]?.unlockModalShown ?? false,
       };
       writeHistory(next);
       return next;
     });
-  }, [
-    dateKey,
-    done,
-    partnerMessageDraft,
-    couplePhotoPath,
-    dailyPhotoPaths,
-    subjectNotes,
-    diaryDraft,
-    localTotalDone,
-    totalTargetNow,
-  ]);
+  }, [dateKey, done, partnerMessageDraft, couplePhotoPath, dailyPhotoPaths, localTotalDone, totalTarget]);
 
-  // ========== Supabase 寫入 ==========
+  // Supabase 寫入（debounce，避免狂打）——改成用 couple_id
   useEffect(() => {
-    if (!coupleId) return; // ✅ 沒 coupleId 不寫
+    if (!coupleId) return;
 
     const t = window.setTimeout(() => {
       (async () => {
@@ -449,13 +410,10 @@ export default function TodayPage() {
             date: dateKey,
             done,
             totalDone: localTotalDone,
-            dayTarget: totalTargetNow,
-            unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
+            unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
             partnerMessage: partnerMessageDraft || undefined,
             couplePhotoPath: couplePhotoPath || undefined,
             dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
-            subjectNotes: subjectNotes.length ? subjectNotes : undefined,
-            diary: diaryDraft || undefined,
           });
           if (res?.error) console.error("[saveDailyToSupabase] error:", res.error);
         } catch (e) {
@@ -465,20 +423,9 @@ export default function TodayPage() {
     }, 600);
 
     return () => window.clearTimeout(t);
-  }, [
-    coupleId,
-    dateKey,
-    done,
-    localTotalDone,
-    totalTargetNow,
-    partnerMessageDraft,
-    couplePhotoPath,
-    dailyPhotoPaths,
-    subjectNotes,
-    diaryDraft,
-  ]);
+  }, [coupleId, dateKey, done, localTotalDone, totalTarget, partnerMessageDraft, couplePhotoPath, dailyPhotoPaths]);
 
-  // ========== 解鎖彈窗 ==========
+  // 解鎖瞬間（一天一次彈窗）
   useEffect(() => {
     const today = history[dateKey];
     const alreadyShown = !!today?.unlockModalShown;
@@ -505,7 +452,7 @@ export default function TodayPage() {
   // ✅ 上傳：合照（改用 couple_id folder）
   async function uploadCouplePhoto(file: File | null) {
     if (!file) return;
-    if (!coupleId) return alert("尚未取得 coupleId，請重新整理頁面。");
+    if (!coupleId) return alert("尚未取得 coupleId，請重新整理。");
 
     setUploadingCouple(true);
 
@@ -521,18 +468,16 @@ export default function TodayPage() {
       setCouplePhotoPath(path);
       setCouplePhotoVersion(Date.now());
 
+      // 立刻寫 DB
       await saveDailyToSupabase({
         coupleId,
         date: dateKey,
         done,
         totalDone: localTotalDone,
-        dayTarget: totalTargetNow,
-        unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
+        unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: path,
         dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
-        subjectNotes: subjectNotes.length ? subjectNotes : undefined,
-        diary: diaryDraft || undefined,
       });
     } catch (e) {
       console.error("[uploadCouplePhoto] error:", e);
@@ -545,7 +490,7 @@ export default function TodayPage() {
   // ✅ 上傳：今日照片（改用 couple_id folder）
   async function uploadDailyPhotos(files: FileList | null) {
     if (!files || files.length === 0) return;
-    if (!coupleId) return alert("尚未取得 coupleId，請重新整理頁面。");
+    if (!coupleId) return alert("尚未取得 coupleId，請重新整理。");
 
     setUploadingDaily(true);
 
@@ -570,18 +515,16 @@ export default function TodayPage() {
       const merged = [...newPaths, ...dailyPhotoPaths].slice(0, 24);
       setDailyPhotoPaths(merged);
 
+      // 立刻寫 DB
       await saveDailyToSupabase({
         coupleId,
         date: dateKey,
         done,
         totalDone: localTotalDone,
-        dayTarget: totalTargetNow,
-        unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
+        unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: merged,
-        subjectNotes: subjectNotes.length ? subjectNotes : undefined,
-        diary: diaryDraft || undefined,
       });
     } catch (e) {
       console.error("[uploadDailyPhotos] error:", e);
@@ -591,8 +534,9 @@ export default function TodayPage() {
     }
   }
 
+  // ✅ 刪除單張今日照片（Storage + DB 同步）
   async function deleteDailyPhoto(path: string) {
-    if (!coupleId) return alert("尚未取得 coupleId，請重新整理頁面。");
+    if (!coupleId) return alert("尚未取得 coupleId，請重新整理。");
 
     try {
       const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path]);
@@ -606,13 +550,10 @@ export default function TodayPage() {
         date: dateKey,
         done,
         totalDone: localTotalDone,
-        dayTarget: totalTargetNow,
-        unlocked: totalTargetNow === 0 ? false : localTotalDone / totalTargetNow >= 2 / 3,
+        unlocked: totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3,
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: next.length ? next : undefined,
-        subjectNotes: subjectNotes.length ? subjectNotes : undefined,
-        diary: diaryDraft || undefined,
       });
     } catch (e) {
       console.error("[deleteDailyPhoto] error:", e);
@@ -625,88 +566,541 @@ export default function TodayPage() {
   const coupleImgSrc =
     couplePhotoPath && effectiveUnlocked ? `${publicUrl(couplePhotoPath)}?t=${couplePhotoVersion || 0}` : null;
 
-  // ====== UI（下面你原本的 JSX 我不動，省略）======
-  // ✅ 你貼的 UI 很長，我這裡不重複貼，請保留你原本 return(...) 的內容即可。
-  // ✅ 唯一要改的是：你檔案內的 return(...) 下面那段 UI，直接用你現在的那段，完全不用動。
-
   return (
     <main className="min-h-screen bg-gradient-to-b from-amber-50 via-rose-50 to-orange-50 text-zinc-900">
-      {/* 你的 UI 原封不動貼回來即可 */}
-      {/* 為了避免我在這裡重複一大段 UI，請你把你原本 return(...) 的 JSX 直接放回來 */}
-      <div className="p-6 text-sm text-zinc-600">
-        ✅ 已套用 couple_id 共享版程式。請把你原本的 UI return(...) 貼回來即可（UI 不需改）。
-        <div className="mt-2">
-          coupleId: <span className="font-mono">{coupleId ?? "(loading...)"}</span> / role:{" "}
-          <span className="font-mono">{myRole ?? "(loading...)"}</span>
+      <ConfettiBurst active={confettiOn} />
+
+      <BottomTabBar tab={tab} setTab={setTab} unlockBadge={unlockBadge} photosBadge={photosBadge} />
+
+      <div className="pb-28">
+        <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
+          <header className="space-y-2 text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white/70 px-4 py-2 text-sm text-rose-700 shadow-sm">
+              <span>🌷</span>
+              <span>今天也一起穩穩前進</span>
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight">陪考日記 · 今日</h1>
+            <p className="text-sm text-zinc-600">
+              完成 <span className="font-semibold text-rose-700">2/3</span> 即解鎖「鼓勵訊息 / 合照 / 今日照片」✨
+            </p>
+
+            {/* 可選：除錯用，確定抓到 coupleId */}
+            <div className="mt-2 text-xs text-zinc-500">
+              coupleId: <span className="font-mono">{coupleId ?? "(loading...)"}</span> / role:{" "}
+              <span className="font-mono">{myRole ?? "(loading...)"}</span>
+            </div>
+          </header>
+
+          <nav className="hidden sm:block rounded-3xl border border-rose-200/60 bg-white/70 p-3 shadow-sm">
+            <div className="grid grid-cols-4 gap-2">
+              <TabButton active={tab === "checkin"} onClick={() => setTab("checkin")} icon="📝" label="打卡" />
+              <TabButton active={tab === "unlock"} onClick={() => setTab("unlock")} icon="🎁" label="解鎖" badge={unlockBadge} />
+              <TabButton
+                active={tab === "photos"}
+                onClick={() => setTab("photos")}
+                icon="📷"
+                label="照片/一句話"
+                badge={photosBadge}
+              />
+              <TabButton active={tab === "history"} onClick={() => setTab("history")} icon="🗓️" label="回顧牆" />
+            </div>
+          </nav>
+
+          {/* ====== Tab: 打卡 ====== */}
+          {tab === "checkin" && (
+            <div className="space-y-6">
+              <section className="rounded-3xl border border-amber-200/60 bg-white/80 p-5 shadow-sm space-y-4">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <div className="text-sm text-zinc-600">今日總完成</div>
+                    <div className="text-2xl font-semibold">
+                      {localTotalDone.toFixed(1)} / {totalTarget.toFixed(1)} 小時
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-zinc-600">進度</div>
+                    <div className="text-2xl font-semibold text-rose-700">
+                      {Math.round((totalTarget === 0 ? 0 : localTotalDone / totalTarget) * 100)}%
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-3 w-full rounded-full bg-rose-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
+                    style={{ width: `${clamp((totalTarget === 0 ? 0 : localTotalDone / totalTarget) * 100, 0, 100)}%` }}
+                  />
+                </div>
+
+                <div className="text-sm">
+                  {totalTarget !== 0 && localTotalDone / totalTarget >= 2 / 3 ? (
+                    <span className="text-emerald-700 font-medium">✅ 已達成 2/3，解鎖成功！</span>
+                  ) : (
+                    <span className="text-amber-700">
+                      還差 <span className="font-semibold">{Math.max(0, (2 / 3) * totalTarget - localTotalDone).toFixed(1)}</span>{" "}
+                      小時就能解鎖
+                    </span>
+                  )}
+                </div>
+
+                {!(totalTarget !== 0 && localTotalDone / totalTarget >= 2 / 3) && (
+                  <button
+                    className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
+                    onClick={() => setTab("unlock")}
+                  >
+                    去解鎖頁看看 🎁
+                  </button>
+                )}
+              </section>
+
+              <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+                  <h2 className="text-lg font-semibold">今日目標（快速加減 0.5h）</h2>
+                  <button
+                    className="text-sm rounded-2xl border border-rose-200 bg-white/80 px-4 py-3 font-medium hover:bg-white"
+                    onClick={() => setDone(subjects.map(() => 0))}
+                  >
+                    全部歸零
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {subjects.map((s, i) => {
+                    const d = done[i] || 0;
+                    const ratio = s.target === 0 ? 0 : d / s.target;
+
+                    return (
+                      <div key={s.name} className="rounded-2xl border border-rose-200/60 bg-white/70 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-zinc-900">
+                            {s.name} <span className="text-zinc-500 text-sm">目標 {s.target}h</span>
+                          </div>
+                          <div className="text-sm text-rose-700 font-medium">{Math.round(clamp(ratio, 0, 1) * 100)}%</div>
+                        </div>
+
+                        <div className="h-2 w-full rounded-full bg-rose-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
+                            style={{ width: `${clamp(ratio * 100, 0, 100)}%` }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3 items-center">
+                          <button
+                            className="rounded-2xl border border-rose-200 bg-white/80 py-3 font-semibold text-rose-700 active:scale-[0.99]"
+                            onClick={() =>
+                              setDone((prev) => prev.map((x, idx) => (idx === i ? clamp((x || 0) - 0.5, 0, 99) : x)))
+                            }
+                          >
+                            -0.5
+                          </button>
+
+                          <input
+                            type="number"
+                            step="0.5"
+                            min={0}
+                            inputMode="decimal"
+                            className="w-full text-center rounded-2xl bg-white/90 border border-rose-200 px-3 py-3 text-base font-semibold outline-none focus:ring-2 focus:ring-rose-200"
+                            value={d}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              setDone((prev) => prev.map((x, idx) => (idx === i ? (isNaN(v) ? 0 : v) : x)));
+                            }}
+                          />
+
+                          <button
+                            className="rounded-2xl border border-rose-200 bg-white/80 py-3 font-semibold text-rose-700 active:scale-[0.99]"
+                            onClick={() =>
+                              setDone((prev) => prev.map((x, idx) => (idx === i ? clamp((x || 0) + 0.5, 0, 99) : x)))
+                            }
+                          >
+                            +0.5
+                          </button>
+                        </div>
+
+                        <div className="text-xs text-zinc-500">小提醒：每次變動會在 0.6 秒後自動同步 Supabase</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {/* ====== Tab: 解鎖 ====== */}
+          {tab === "unlock" && (
+            <div className="space-y-6">
+              <section
+                id="unlock-section"
+                ref={(el) => {
+                  unlockSectionRef.current = el;
+                }}
+                className={`rounded-3xl border p-5 shadow-sm space-y-4 ${
+                  effectiveUnlocked ? "border-emerald-200 bg-emerald-50" : "border-rose-200/60 bg-white/80"
+                }`}
+              >
+                <h2 className="text-lg font-semibold">🎁 解鎖區</h2>
+
+                {!effectiveUnlocked ? (
+                  <div className="space-y-4">
+                    <div className="text-sm text-zinc-700 leading-relaxed">
+                      完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到內容。你已經很努力了，慢慢來也沒關係 🌷
+                    </div>
+
+                    <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
+                      還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span> 小時就解鎖囉～我在這裡等你 ✨
+                    </div>
+
+                    <button
+                      className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
+                      onClick={() => setTab("checkin")}
+                    >
+                      回去打卡 📝
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4">
+                      <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話</div>
+                      <div className="text-base text-zinc-900 leading-relaxed">
+                        {partnerMessageDraft?.trim()
+                          ? partnerMessageDraft.trim()
+                          : "我看到你今天的努力了，真的很為你驕傲。累了就休息一下，但別忘了你一直都在變強，我會一直陪你 💛"}
+                      </div>
+                    </div>
+
+                    <button
+                      className="w-full rounded-2xl border border-emerald-200 bg-white/90 py-3 font-medium text-emerald-700 active:scale-[0.99]"
+                      onClick={() => setTab("photos")}
+                    >
+                      去看合照與今日照片 📷
+                    </button>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {/* ====== Tab: 照片/一句話 ====== */}
+          {tab === "photos" && (
+            <div className="space-y-6">
+              <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">兩人合照（永久）</h2>
+                    <p className="text-sm text-zinc-600">這張會存在 Supabase Storage（public bucket）→ 永久網址可回顧 💛</p>
+                  </div>
+
+                  <label
+                    className={`inline-flex cursor-pointer items-center justify-center rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-sm active:scale-[0.99] ${
+                      uploadingCouple ? "bg-zinc-400" : "bg-rose-600 hover:bg-rose-700"
+                    }`}
+                  >
+                    {uploadingCouple ? "上傳中..." : "上傳合照"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => uploadCouplePhoto(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-100 to-amber-100">
+                  <div className="aspect-[16/9] w-full">
+                    {coupleImgSrc ? (
+                      <img src={coupleImgSrc} alt="couple" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-rose-700/70">
+                        <div className="text-3xl">📷</div>
+                        <div className="text-sm">
+                          {couplePhotoPath ? "（未解鎖，合照已保存，達標後就會顯示）" : "在這裡放你們的合照（永久保存）"}
+                        </div>
+                        <div className="text-xs text-zinc-500">（跨裝置同步 / 永久網址）</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="absolute left-3 top-3 rounded-full bg-white/80 px-3 py-1 text-xs text-rose-700 border border-rose-200">
+                    {effectiveUnlocked ? "已解鎖展示" : "解鎖後展示"}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-rose-200 bg-white/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-zinc-900">今日一句話（同步到 Supabase）</div>
+                      <div className="text-xs text-zinc-500">跨裝置都會看到同一份內容 ✨</div>
+                    </div>
+
+                    <div
+                      className={`text-xs px-2 py-1 rounded-full border ${
+                        effectiveUnlocked
+                          ? "border-emerald-200 text-emerald-700 bg-emerald-50"
+                          : "border-rose-200 text-rose-700 bg-white/50"
+                      }`}
+                    >
+                      {effectiveUnlocked ? "已解鎖" : "未解鎖"}
+                    </div>
+                  </div>
+
+                  <textarea
+                    className="mt-3 w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                    rows={3}
+                    placeholder="例如：今天你真的很棒，我看到你的努力了。慢慢來，我一直在 💛"
+                    value={partnerMessageDraft}
+                    onChange={(e) => setPartnerMessageDraft(e.target.value)}
+                  />
+
+                  {!effectiveUnlocked && <div className="mt-2 text-xs text-zinc-500">（他要完成 2/3 才會看到這句話）</div>}
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">今日照片（永久）</h2>
+                    <p className="text-sm text-zinc-600">上傳後會是永久網址，回顧牆跨裝置都能看 🌙</p>
+                  </div>
+
+                  <label
+                    className={`inline-flex cursor-pointer items-center justify-center rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-sm active:scale-[0.99] ${
+                      uploadingDaily ? "bg-zinc-400" : "bg-emerald-600 hover:bg-emerald-700"
+                    }`}
+                  >
+                    {uploadingDaily ? "上傳中..." : "上傳今日照片"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => uploadDailyPhotos(e.target.files)}
+                    />
+                  </label>
+                </div>
+
+                {dailyPhotoPaths.length === 0 ? (
+                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">
+                    還沒有照片～上傳 1～3 張，回顧時會很有成就感 ✨
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {dailyPhotoPaths.map((path) => (
+                      <div key={path} className="relative overflow-hidden rounded-2xl border border-rose-200 bg-white">
+                        <div className="aspect-square">
+                          <img src={publicUrl(path)} alt={path} className="h-full w-full object-cover" />
+                        </div>
+
+                        <button
+                          className="absolute right-2 top-2 rounded-full bg-white/90 border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 active:scale-[0.99]"
+                          onClick={() => deleteDailyPhoto(path)}
+                        >
+                          刪除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!effectiveUnlocked && (
+                  <div className="text-xs text-zinc-500">
+                    小提醒：照片在「解鎖」後會更有儀式感，但你可以先放著，等他完成再一起看 💛
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {/* ====== Tab: 回顧牆 ====== */}
+          {tab === "history" && (
+            <div className="space-y-6">
+              <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">🗓️ 回顧牆（跨裝置）</h2>
+                    <p className="text-sm text-zinc-600">此處會顯示「Supabase 同步回來」的最近 30 天紀錄。</p>
+                  </div>
+
+                  <button
+                    className="text-sm rounded-2xl border border-rose-200 bg-white/80 px-4 py-3 font-medium hover:bg-white active:scale-[0.99]"
+                    onClick={() => {
+                      if (!confirm("確定要清空本機回顧快取嗎？（不會刪 Supabase）")) return;
+                      localStorage.removeItem("studybuddy_history_v1");
+                      setHistory({});
+                      setDone(subjects.map(() => 0));
+                      setPartnerMessageDraft("");
+                      setCouplePhotoPath(null);
+                      setDailyPhotoPaths([]);
+                    }}
+                  >
+                    清空本機快取
+                  </button>
+                </div>
+
+                {dates.length === 0 ? (
+                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">
+                    還沒有紀錄～從今天開始累積，回顧牆會越來越可愛 ✨
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {dates.map((d) => {
+                      const r = history[d];
+
+                      const dTotal =
+                        typeof r?.totalDone === "number"
+                          ? r.totalDone
+                          : (r?.done || []).reduce((s, x) => s + (Number(x) || 0), 0);
+
+                      const isUnlock =
+                        typeof r?.unlocked === "boolean"
+                          ? r.unlocked
+                          : totalTarget === 0
+                          ? false
+                          : dTotal / totalTarget >= 2 / 3;
+
+                      const ratio = totalTarget === 0 ? 0 : dTotal / totalTarget;
+                      const photos = r?.dailyPhotoPaths || [];
+
+                      return (
+                        <div key={d} className="rounded-2xl border border-rose-200 bg-white/70 p-4 space-y-3">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="font-medium">
+                              {d}{" "}
+                              <span
+                                className={`ml-2 text-xs px-2 py-1 rounded-full border ${
+                                  isUnlock
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : "border-rose-200 bg-white/80 text-rose-700"
+                                }`}
+                              >
+                                {isUnlock ? "已解鎖" : "未解鎖"}
+                              </span>
+                            </div>
+
+                            <div className="text-sm text-zinc-600">
+                              用功 {dTotal.toFixed(1)}h / 目標 {totalTarget.toFixed(1)}h（{Math.round(ratio * 100)}%）
+                            </div>
+                          </div>
+
+                          {photos.length === 0 ? (
+                            <div className="text-sm text-zinc-500">這天沒有照片。</div>
+                          ) : (
+                            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                              {photos.slice(0, 12).map((path) => (
+                                <div key={path} className="overflow-hidden rounded-xl border border-rose-200 bg-white">
+                                  <div className="aspect-square">
+                                    <img src={publicUrl(path)} alt={path} className="h-full w-full object-cover" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {r?.partnerMessage?.trim() ? (
+                            <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
+                              <span className="font-medium text-rose-700">一句話：</span>{" "}
+                              {isUnlock ? r.partnerMessage : "（未解鎖，內容保留到你努力達標那刻 💛）"}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          <footer className="text-xs text-zinc-500 text-center">
+            ✅ 目前照片已改為 Supabase Storage（public bucket）→ 永久 URL 可回顧、可跨裝置同步。
+          </footer>
         </div>
       </div>
+
+      {showUnlockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowUnlockModal(false)} />
+          <div className="relative w-full max-w-md rounded-3xl border border-rose-200 bg-white p-6 shadow-xl">
+            <div className="text-center space-y-2">
+              <div className="text-3xl">🎉</div>
+              <h3 className="text-xl font-semibold text-zinc-900">解鎖成功！</h3>
+              <p className="text-sm text-zinc-600">
+                你已完成今日目標的 <span className="font-semibold text-rose-700">2/3</span>，現在可以解鎖「鼓勵訊息 / 合照 / 今日照片」✨
+              </p>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                className="rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm hover:bg-rose-700 active:scale-[0.99]"
+                onClick={() => {
+                  setShowUnlockModal(false);
+                  setTab("unlock");
+                  setTimeout(() => scrollToUnlock(), 80);
+                }}
+              >
+                🎁 立刻解鎖
+              </button>
+
+              <button
+                className="rounded-2xl border border-rose-200 bg-white py-3 font-medium hover:bg-rose-50 active:scale-[0.99]"
+                onClick={() => setShowUnlockModal(false)}
+              >
+                晚點再看
+              </button>
+            </div>
+
+            <div className="mt-4 text-center text-xs text-zinc-500">（點背景也可以關閉）</div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
 
-/** ✅ 寫入：改成用 couple_id 當主鍵（couple_id + date） */
+/** ✅ 寫入 daily_records：改成用 couple_id + date 當共享資料 */
 async function saveDailyToSupabase({
   coupleId,
   date,
   done,
   totalDone,
-  dayTarget,
   unlocked,
   partnerMessage,
   couplePhotoPath,
   dailyPhotoPaths,
-  subjectNotes,
-  diary,
 }: {
   coupleId: string;
   date: string;
   done: number[];
   totalDone: number;
-  dayTarget: number;
   unlocked: boolean;
   partnerMessage?: string;
   couplePhotoPath?: string;
   dailyPhotoPaths?: string[];
-  subjectNotes?: string[];
-  diary?: string;
 }) {
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser();
-
-  if (userErr) return { error: userErr };
-  if (!user) return { error: new Error("No user session (not logged in)") };
-
   const payload: any = {
     couple_id: coupleId,
     date,
     done,
     total_done: totalDone,
-    day_target: dayTarget,
     unlocked,
     partner_message: typeof partnerMessage === "string" ? partnerMessage : null,
     couple_photo_path: typeof couplePhotoPath === "string" ? couplePhotoPath : null,
     daily_photo_paths: Array.isArray(dailyPhotoPaths) ? dailyPhotoPaths : null,
-    subject_notes: Array.isArray(subjectNotes) ? subjectNotes : null,
-    diary: typeof diary === "string" ? diary : null,
-
-    // ✅ 建議保留：最後是誰改的（可選）
-    updated_by: user.id,
-    updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase.from("daily_records").upsert(payload);
+  // ✅ 重點：確保你的表有 unique(couple_id, date) 或 primary key (couple_id, date)
+  const { error } = await supabase
+    .from("daily_records")
+    .upsert(payload, { onConflict: "couple_id,date" });
+
   return { error };
 }
 
-/** ✅ 讀取：改成用 couple_id */
+/** ✅ 讀取最近 30 天：改用 couple_id */
 async function fetchDailyFromSupabase(coupleId: string) {
   const { data, error } = await supabase
     .from("daily_records")
-    .select(
-      "date, done, total_done, unlocked, day_target, partner_message, couple_photo_path, daily_photo_paths, subject_notes, diary"
-    )
+    .select("date, done, total_done, unlocked, partner_message, couple_photo_path, daily_photo_paths")
     .eq("couple_id", coupleId)
     .order("date", { ascending: false })
     .limit(30);
