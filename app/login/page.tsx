@@ -50,7 +50,7 @@ export default function LoginPage() {
         <p className="text-sm text-zinc-600">輸入名字 + PIN（不寄信，只需一次）</p>
 
         <div className="space-y-2">
-          <div className="text-sm placeholder:text-zinc-400">名字</div>
+          <div className="text-sm text-zinc-400">名字</div>
           <input
             className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none text-zinc-900 placeholder:placeholder:text-zinc-400 bg-white"
             placeholder="rueiyu / wilson"
@@ -62,7 +62,7 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-2">
-          <div className="text-sm placeholder:text-zinc-400">PIN</div>
+          <div className="text-sm text-zinc-400">PIN</div>
           <input
             className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none text-zinc-900 placeholder:placeholder:text-zinc-400 bg-white"
             placeholder="輸入 PIN (生日)"
