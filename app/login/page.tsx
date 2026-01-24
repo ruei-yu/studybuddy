@@ -1,66 +1,91 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 
+const ACCOUNT_MAP: Record<string, { email: string; role: "supporter" | "writer" }> = {
+  rueiyu: { email: "rueiyu@studybuddy.local", role: "supporter" },
+  wilson: { email: "wilson@studybuddy.local", role: "writer" },
+};
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function sendLink() {
+  async function onLogin() {
+    const key = name.trim().toLowerCase();
+    const acc = ACCOUNT_MAP[key];
+
+    if (!acc) return alert("名字只接受 rueiyu 或 wilson");
+    if (!pin.trim()) return alert("請輸入 PIN");
+
     setLoading(true);
     try {
-      const redirectTo =
-        process.env.NEXT_PUBLIC_SITE_URL
-          ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
-          : `${window.location.origin}/auth/callback`;
-
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: redirectTo },
+      const { error } = await supabase.auth.signInWithPassword({
+        email: acc.email,
+        password: pin.trim(),
       });
-
       if (error) throw error;
-      setSent(true);
+
+      // ✅ 你想要「只輸入一次」：存到 localStorage 讓你做 UI 分流也行
+      localStorage.setItem("sb_name", key);
+      localStorage.setItem("sb_role_hint", acc.role);
+
+      router.replace("/today");
     } catch (e: any) {
-      alert(e?.message ?? "寄送失敗");
-      console.error("[sendLink] error:", e);
+      alert(e?.message ?? "登入失敗");
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }
 
-
-
   return (
-    <main className="mx-auto max-w-md p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">陪考日記 登入</h1>
-      <p className="text-sm text-gray-600">
-        輸入 Email，我們會寄登入連結給你。
-      </p>
+    <main className="min-h-screen flex items-center justify-center bg-rose-50 px-4">
+      <div className="w-full max-w-sm rounded-3xl border border-rose-200 bg-white p-6 shadow-sm space-y-4">
+        <h1 className="text-xl font-semibold text-zinc-900">StudyBuddy 登入</h1>
+        <p className="text-sm text-zinc-600">輸入名字 + PIN（不寄信，只需一次）</p>
 
-      <input
-        className="w-full rounded border p-2"
-        placeholder="you@example.com"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-
-      <button
-        className="w-full rounded bg-black text-white p-2 disabled:opacity-50"
-        onClick={sendLink}
-        disabled={!email || loading}
-      >
-        {loading ? "寄送中..." : "寄登入連結"}
-      </button>
-
-      {sent && (
-        <div className="rounded bg-green-50 p-3 text-sm">
-          已寄出！請去信箱點連結登入。
+        <div className="space-y-2">
+          <div className="text-sm font-medium">名字</div>
+          <input
+            className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none"
+            placeholder="rueiyu / wilson"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
+          />
         </div>
-      )}
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">PIN</div>
+          <input
+            className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none"
+            placeholder="輸入 PIN"
+            type="password"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+          />
+        </div>
+
+        <button
+          onClick={onLogin}
+          disabled={loading}
+          className={`w-full rounded-2xl py-3 font-medium text-white ${
+            loading ? "bg-zinc-400" : "bg-rose-600 hover:bg-rose-700"
+          }`}
+        >
+          {loading ? "登入中..." : "登入"}
+        </button>
+
+        <div className="text-xs text-zinc-500">
+          分流規則：rueiyu → supporter，wilson → writer
+        </div>
+      </div>
     </main>
   );
 }

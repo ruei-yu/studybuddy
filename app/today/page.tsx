@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { useRouter } from "next/navigation";
 
 const BUCKET = "daily-photos";
 
@@ -236,6 +237,7 @@ function BottomTabBar({
 }
 
 export default function TodayPage() {
+  
   const dateKey = useMemo(() => todayISO(), []);
   const unlockSectionRef = useRef<HTMLElement | null>(null);
 
@@ -259,6 +261,15 @@ export default function TodayPage() {
 
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
+
+  const router = useRouter();
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) router.replace("/login");
+    })();
+  }, [router]);
 
   const totalTarget = useMemo(() => subjects.reduce((s, x) => s + x.target, 0), []);
   const localTotalDone = useMemo(() => done.reduce((sum, h) => sum + (Number(h) || 0), 0), [done]);
@@ -376,7 +387,7 @@ export default function TodayPage() {
   }, [dateKey, done, partnerMessageDraft, couplePhotoPath, dailyPhotoPaths, localTotalDone, totalTarget]);
 
   // 4) Supabase 寫入（用 couple_id + date upsert）
-  useEffect(() => {
+   useEffect(() => {
     if (!coupleId) return;
 
     const t = window.setTimeout(() => {
@@ -1103,3 +1114,15 @@ async function getMyProfile() {
 
   return { profile: data, error };
 }
+<button
+  className="text-sm rounded-2xl border px-4 py-2"
+  onClick={async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem("sb_name");
+    localStorage.removeItem("sb_role_hint");
+    location.href = "/login";
+  }}
+>
+  登出
+</button>
+
