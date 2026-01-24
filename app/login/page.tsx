@@ -52,7 +52,7 @@ export default function LoginPage() {
         <div className="space-y-2">
           <div className="text-sm font-medium">名字</div>
           <input
-            className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none"
+            className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none text-zinc-900 placeholder:text-zinc-500 bg-white"
             placeholder="rueiyu / wilson"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -64,8 +64,8 @@ export default function LoginPage() {
         <div className="space-y-2">
           <div className="text-sm font-medium">PIN</div>
           <input
-            className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none"
-            placeholder="輸入 PIN"
+            className="w-full rounded-2xl border border-rose-200 px-3 py-3 outline-none text-zinc-900 placeholder:text-zinc-500 bg-white"
+            placeholder="輸入 PIN (生日)"
             type="password"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
