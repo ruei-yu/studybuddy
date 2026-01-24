@@ -18,15 +18,13 @@ type DayRecord = {
   done: number[];
   partnerMessage?: string;
 
-  // Supabase Storage 永久路徑（跨裝置）
+  // Supabase Storage paths
   couplePhotoPath?: string;
-  dailyPhotoPaths?: string[];
+  dailyPhotoPaths?: any; // 可能是 text[] 或 jsonb array，先用 any 承接
 
-  // Supabase 欄位（更準）
   totalDone?: number;
   unlocked?: boolean;
 
-  // 本機 UI 狀態（一天一次）
   unlockModalShown?: boolean;
 };
 
@@ -59,24 +57,20 @@ function writeHistory(store: HistoryStore) {
   localStorage.setItem("studybuddy_history_v1", JSON.stringify(store));
 }
 
-/** 日期新→舊 */
 function sortDatesDesc(dates: string[]) {
   return dates.slice().sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
 }
 
-/** 取得 public 永久 URL（bucket 必須是 public） */
 function publicUrl(path: string) {
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
 
-/** 檔名安全化 */
 function safeName(name: string) {
   const cleaned = name.replace(/[^\w.\-]+/g, "_");
   return cleaned.length ? cleaned : `file_${Date.now()}`;
 }
 
-/** 小彩帶 */
 function ConfettiBurst({ active }: { active: boolean }) {
   const pieces = useMemo(() => {
     if (!active) return [];
@@ -141,7 +135,6 @@ function ConfettiBurst({ active }: { active: boolean }) {
   );
 }
 
-/** 上方 tabs（桌機用） */
 function TabButton({
   active,
   onClick,
@@ -181,7 +174,6 @@ function TabButton({
   );
 }
 
-/** 手機底部 tab bar */
 function BottomTabBar({
   tab,
   setTab,
@@ -247,41 +239,32 @@ export default function TodayPage() {
   const dateKey = useMemo(() => todayISO(), []);
   const unlockSectionRef = useRef<HTMLElement | null>(null);
 
-  // 分頁
   const [tab, setTab] = useState<TabKey>("checkin");
 
-  // Local/Supabase Store
   const [history, setHistory] = useState<HistoryStore>({});
   const [done, setDone] = useState<number[]>(subjects.map(() => 0));
   const [partnerMessageDraft, setPartnerMessageDraft] = useState<string>("");
 
-  // ✅ coupleId / role（共享的關鍵）
+  // ✅ couple 分享核心
   const [coupleId, setCoupleId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
 
-  // Storage paths（永久）
   const [couplePhotoPath, setCouplePhotoPath] = useState<string | null>(null);
   const [dailyPhotoPaths, setDailyPhotoPaths] = useState<string[]>([]);
 
-  // cache bust：只需要對「固定路徑覆蓋」的合照處理
   const [couplePhotoVersion, setCouplePhotoVersion] = useState<number>(0);
 
-  // 上傳狀態
   const [uploadingCouple, setUploadingCouple] = useState(false);
   const [uploadingDaily, setUploadingDaily] = useState(false);
 
-  // UI states
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
 
-  // 計算進度 / 解鎖
   const totalTarget = useMemo(() => subjects.reduce((s, x) => s + x.target, 0), []);
   const localTotalDone = useMemo(() => done.reduce((sum, h) => sum + (Number(h) || 0), 0), [done]);
 
-  // 以「Supabase 同步回來的」為主（如果有），沒有就用當下 done
   const todayFromHistory = history[dateKey];
-  const effectiveTotalDone =
-    typeof todayFromHistory?.totalDone === "number" ? todayFromHistory.totalDone : localTotalDone;
+  const effectiveTotalDone = typeof todayFromHistory?.totalDone === "number" ? todayFromHistory.totalDone : localTotalDone;
 
   const effectiveUnlocked =
     typeof todayFromHistory?.unlocked === "boolean"
@@ -292,11 +275,10 @@ export default function TodayPage() {
 
   const needHoursToUnlock = Math.max(0, (2 / 3) * totalTarget - effectiveTotalDone);
 
-  // 分頁 badge
   const unlockBadge = effectiveUnlocked ? "已解鎖" : `差 ${needHoursToUnlock.toFixed(1)}h`;
   const photosBadge = dailyPhotoPaths.length ? `${dailyPhotoPaths.length}張` : undefined;
 
-  // ✅ 初始化：先抓自己的 couple_id / role
+  // ✅ 0) 先抓自己的 couple_id / role
   useEffect(() => {
     (async () => {
       const { profile, error } = await getMyProfile();
@@ -309,7 +291,7 @@ export default function TodayPage() {
     })();
   }, []);
 
-  // Step A：先讀本機（離線也能看）
+  // 1) 先讀本機
   useEffect(() => {
     const store = readHistory();
     setHistory(store);
@@ -318,10 +300,10 @@ export default function TodayPage() {
     if (today?.done?.length) setDone(today.done);
     if (typeof today?.partnerMessage === "string") setPartnerMessageDraft(today.partnerMessage);
     if (typeof today?.couplePhotoPath === "string") setCouplePhotoPath(today.couplePhotoPath);
-    if (Array.isArray(today?.dailyPhotoPaths)) setDailyPhotoPaths(today.dailyPhotoPaths);
+    if (Array.isArray(today?.dailyPhotoPaths)) setDailyPhotoPaths(today.dailyPhotoPaths as any);
   }, [dateKey]);
 
-  // Step A：再從 Supabase 同步近 30 天（跨裝置）——改成用 couple_id
+  // 2) 再用 coupleId 同步近 30 天
   useEffect(() => {
     if (!coupleId) return;
 
@@ -333,7 +315,6 @@ export default function TodayPage() {
       }
       if (!data) return;
 
-      // 回灌 history + 同步今天畫面
       setHistory((prev) => {
         const next: HistoryStore = { ...prev };
 
@@ -343,11 +324,11 @@ export default function TodayPage() {
             done: Array.isArray(row.done) ? row.done : subjects.map(() => 0),
             totalDone: typeof row.total_done === "number" ? row.total_done : next[row.date]?.totalDone,
             unlocked: typeof row.unlocked === "boolean" ? row.unlocked : next[row.date]?.unlocked,
-            partnerMessage:
-              typeof row.partner_message === "string" ? row.partner_message : next[row.date]?.partnerMessage,
-            couplePhotoPath:
-              typeof row.couple_photo_path === "string" ? row.couple_photo_path : next[row.date]?.couplePhotoPath,
-            dailyPhotoPaths: Array.isArray(row.daily_photo_paths) ? row.daily_photo_paths : next[row.date]?.dailyPhotoPaths,
+            partnerMessage: typeof row.partner_message === "string" ? row.partner_message : next[row.date]?.partnerMessage,
+            couplePhotoPath: typeof row.couple_photo_path === "string" ? row.couple_photo_path : next[row.date]?.couplePhotoPath,
+            dailyPhotoPaths: Array.isArray(row.daily_photo_paths)
+              ? row.daily_photo_paths
+              : (row.daily_photo_paths && Array.isArray(row.daily_photo_paths)) ? row.daily_photo_paths : next[row.date]?.dailyPhotoPaths,
           };
         }
 
@@ -355,7 +336,6 @@ export default function TodayPage() {
         return next;
       });
 
-      // 如果 Supabase 有今天資料，直接更新 TodayPage 狀態（以 Supabase 為主）
       const todayRow = (data as any[]).find((x) => x.date === dateKey);
       if (todayRow) {
         if (Array.isArray(todayRow.done)) setDone(todayRow.done);
@@ -367,12 +347,11 @@ export default function TodayPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateKey, coupleId]);
 
-  // 合照路徑變更就 bust（避免看到舊圖）
   useEffect(() => {
     if (couplePhotoPath) setCouplePhotoVersion(Date.now());
   }, [couplePhotoPath]);
 
-  // 本機快取（離線保留 + UI 秒開）
+  // 3) 本機快取
   useEffect(() => {
     setHistory((prev) => {
       const next: HistoryStore = { ...prev };
@@ -382,7 +361,6 @@ export default function TodayPage() {
         partnerMessage: partnerMessageDraft || undefined,
         couplePhotoPath: couplePhotoPath || undefined,
         dailyPhotoPaths: dailyPhotoPaths.length ? dailyPhotoPaths : undefined,
-
         totalDone: localTotalDone,
         unlocked:
           typeof next[dateKey]?.unlocked === "boolean"
@@ -390,7 +368,6 @@ export default function TodayPage() {
             : totalTarget === 0
             ? false
             : localTotalDone / totalTarget >= 2 / 3,
-
         unlockModalShown: next[dateKey]?.unlockModalShown ?? false,
       };
       writeHistory(next);
@@ -398,7 +375,7 @@ export default function TodayPage() {
     });
   }, [dateKey, done, partnerMessageDraft, couplePhotoPath, dailyPhotoPaths, localTotalDone, totalTarget]);
 
-  // Supabase 寫入（debounce，避免狂打）——改成用 couple_id
+  // 4) Supabase 寫入（用 couple_id + date upsert）
   useEffect(() => {
     if (!coupleId) return;
 
@@ -425,7 +402,7 @@ export default function TodayPage() {
     return () => window.clearTimeout(t);
   }, [coupleId, dateKey, done, localTotalDone, totalTarget, partnerMessageDraft, couplePhotoPath, dailyPhotoPaths]);
 
-  // 解鎖瞬間（一天一次彈窗）
+  // 5) 解鎖彈窗
   useEffect(() => {
     const today = history[dateKey];
     const alreadyShown = !!today?.unlockModalShown;
@@ -449,13 +426,12 @@ export default function TodayPage() {
     el?.scrollIntoView({ behavior: "smooth" });
   }
 
-  // ✅ 上傳：合照（改用 couple_id folder）
+  // ✅ 上傳：合照（改用 coupleId folder）
   async function uploadCouplePhoto(file: File | null) {
     if (!file) return;
-    if (!coupleId) return alert("尚未取得 coupleId，請重新整理。");
+    if (!coupleId) return alert("尚未取得 coupleId，請重新整理頁面。");
 
     setUploadingCouple(true);
-
     try {
       const path = `${coupleId}/couple.jpg`;
 
@@ -468,7 +444,6 @@ export default function TodayPage() {
       setCouplePhotoPath(path);
       setCouplePhotoVersion(Date.now());
 
-      // 立刻寫 DB
       await saveDailyToSupabase({
         coupleId,
         date: dateKey,
@@ -487,13 +462,12 @@ export default function TodayPage() {
     }
   }
 
-  // ✅ 上傳：今日照片（改用 couple_id folder）
+  // ✅ 上傳：今日照片（改用 coupleId folder）
   async function uploadDailyPhotos(files: FileList | null) {
     if (!files || files.length === 0) return;
-    if (!coupleId) return alert("尚未取得 coupleId，請重新整理。");
+    if (!coupleId) return alert("尚未取得 coupleId，請重新整理頁面。");
 
     setUploadingDaily(true);
-
     try {
       const maxAdd = Math.min(files.length, 6);
       const newPaths: string[] = [];
@@ -515,7 +489,6 @@ export default function TodayPage() {
       const merged = [...newPaths, ...dailyPhotoPaths].slice(0, 24);
       setDailyPhotoPaths(merged);
 
-      // 立刻寫 DB
       await saveDailyToSupabase({
         coupleId,
         date: dateKey,
@@ -534,9 +507,8 @@ export default function TodayPage() {
     }
   }
 
-  // ✅ 刪除單張今日照片（Storage + DB 同步）
   async function deleteDailyPhoto(path: string) {
-    if (!coupleId) return alert("尚未取得 coupleId，請重新整理。");
+    if (!coupleId) return alert("尚未取得 coupleId，請重新整理頁面。");
 
     try {
       const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path]);
@@ -566,6 +538,9 @@ export default function TodayPage() {
   const coupleImgSrc =
     couplePhotoPath && effectiveUnlocked ? `${publicUrl(couplePhotoPath)}?t=${couplePhotoVersion || 0}` : null;
 
+  // =======================
+  // ✅ 下面是你原本 UI（完全保留）
+  // =======================
   return (
     <main className="min-h-screen bg-gradient-to-b from-amber-50 via-rose-50 to-orange-50 text-zinc-900">
       <ConfettiBurst active={confettiOn} />
@@ -584,11 +559,11 @@ export default function TodayPage() {
               完成 <span className="font-semibold text-rose-700">2/3</span> 即解鎖「鼓勵訊息 / 合照 / 今日照片」✨
             </p>
 
-            {/* 可選：除錯用，確定抓到 coupleId */}
-            <div className="mt-2 text-xs text-zinc-500">
-              coupleId: <span className="font-mono">{coupleId ?? "(loading...)"}</span> / role:{" "}
-              <span className="font-mono">{myRole ?? "(loading...)"}</span>
-            </div>
+            {/* 可選：debug 顯示 coupleId/role，確認抓到了 */}
+            <p className="text-xs text-zinc-500 mt-2">
+              coupleId: <span className="font-mono">{coupleId ?? "(loading)"}</span> / role:{" "}
+              <span className="font-mono">{myRole ?? "(loading)"}</span>
+            </p>
           </header>
 
           <nav className="hidden sm:block rounded-3xl border border-rose-200/60 bg-white/70 p-3 shadow-sm">
@@ -606,7 +581,7 @@ export default function TodayPage() {
             </div>
           </nav>
 
-          {/* ====== Tab: 打卡 ====== */}
+          {/* Tab: 打卡 */}
           {tab === "checkin" && (
             <div className="space-y-6">
               <section className="rounded-3xl border border-amber-200/60 bg-white/80 p-5 shadow-sm space-y-4">
@@ -628,7 +603,7 @@ export default function TodayPage() {
                 <div className="h-3 w-full rounded-full bg-rose-100 overflow-hidden">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
-                    style={{ width: `${clamp((totalTarget === 0 ? 0 : localTotalDone / totalTarget) * 100, 0, 100)}%` }}
+                    style={{ width: `${clamp((totalTarget === 0 ? 0 : (localTotalDone / totalTarget) * 100), 0, 100)}%` }}
                   />
                 </div>
 
@@ -637,7 +612,10 @@ export default function TodayPage() {
                     <span className="text-emerald-700 font-medium">✅ 已達成 2/3，解鎖成功！</span>
                   ) : (
                     <span className="text-amber-700">
-                      還差 <span className="font-semibold">{Math.max(0, (2 / 3) * totalTarget - localTotalDone).toFixed(1)}</span>{" "}
+                      還差{" "}
+                      <span className="font-semibold">
+                        {Math.max(0, (2 / 3) * totalTarget - localTotalDone).toFixed(1)}
+                      </span>{" "}
                       小時就能解鎖
                     </span>
                   )}
@@ -727,7 +705,7 @@ export default function TodayPage() {
             </div>
           )}
 
-          {/* ====== Tab: 解鎖 ====== */}
+          {/* Tab: 解鎖 */}
           {tab === "unlock" && (
             <div className="space-y-6">
               <section
@@ -781,7 +759,7 @@ export default function TodayPage() {
             </div>
           )}
 
-          {/* ====== Tab: 照片/一句話 ====== */}
+          {/* Tab: 照片/一句話 */}
           {tab === "photos" && (
             <div className="space-y-6">
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
@@ -797,18 +775,14 @@ export default function TodayPage() {
                     }`}
                   >
                     {uploadingCouple ? "上傳中..." : "上傳合照"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => uploadCouplePhoto(e.target.files?.[0] ?? null)}
-                    />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => uploadCouplePhoto(e.target.files?.[0] ?? null)} />
                   </label>
                 </div>
 
                 <div className="relative overflow-hidden rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-100 to-amber-100">
                   <div className="aspect-[16/9] w-full">
                     {coupleImgSrc ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={coupleImgSrc} alt="couple" className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-rose-700/70">
@@ -835,9 +809,7 @@ export default function TodayPage() {
 
                     <div
                       className={`text-xs px-2 py-1 rounded-full border ${
-                        effectiveUnlocked
-                          ? "border-emerald-200 text-emerald-700 bg-emerald-50"
-                          : "border-rose-200 text-rose-700 bg-white/50"
+                        effectiveUnlocked ? "border-emerald-200 text-emerald-700 bg-emerald-50" : "border-rose-200 text-rose-700 bg-white/50"
                       }`}
                     >
                       {effectiveUnlocked ? "已解鎖" : "未解鎖"}
@@ -869,13 +841,7 @@ export default function TodayPage() {
                     }`}
                   >
                     {uploadingDaily ? "上傳中..." : "上傳今日照片"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => uploadDailyPhotos(e.target.files)}
-                    />
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => uploadDailyPhotos(e.target.files)} />
                   </label>
                 </div>
 
@@ -888,6 +854,7 @@ export default function TodayPage() {
                     {dailyPhotoPaths.map((path) => (
                       <div key={path} className="relative overflow-hidden rounded-2xl border border-rose-200 bg-white">
                         <div className="aspect-square">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={publicUrl(path)} alt={path} className="h-full w-full object-cover" />
                         </div>
 
@@ -911,7 +878,7 @@ export default function TodayPage() {
             </div>
           )}
 
-          {/* ====== Tab: 回顧牆 ====== */}
+          {/* Tab: 回顧牆 */}
           {tab === "history" && (
             <div className="space-y-6">
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
@@ -959,7 +926,7 @@ export default function TodayPage() {
                           : dTotal / totalTarget >= 2 / 3;
 
                       const ratio = totalTarget === 0 ? 0 : dTotal / totalTarget;
-                      const photos = r?.dailyPhotoPaths || [];
+                      const photos = (r?.dailyPhotoPaths || []) as string[];
 
                       return (
                         <div key={d} className="rounded-2xl border border-rose-200 bg-white/70 p-4 space-y-3">
@@ -968,9 +935,7 @@ export default function TodayPage() {
                               {d}{" "}
                               <span
                                 className={`ml-2 text-xs px-2 py-1 rounded-full border ${
-                                  isUnlock
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : "border-rose-200 bg-white/80 text-rose-700"
+                                  isUnlock ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-rose-200 bg-white/80 text-rose-700"
                                 }`}
                               >
                                 {isUnlock ? "已解鎖" : "未解鎖"}
@@ -989,6 +954,7 @@ export default function TodayPage() {
                               {photos.slice(0, 12).map((path) => (
                                 <div key={path} className="overflow-hidden rounded-xl border border-rose-200 bg-white">
                                   <div className="aspect-square">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={publicUrl(path)} alt={path} className="h-full w-full object-cover" />
                                   </div>
                                 </div>
@@ -1025,7 +991,8 @@ export default function TodayPage() {
               <div className="text-3xl">🎉</div>
               <h3 className="text-xl font-semibold text-zinc-900">解鎖成功！</h3>
               <p className="text-sm text-zinc-600">
-                你已完成今日目標的 <span className="font-semibold text-rose-700">2/3</span>，現在可以解鎖「鼓勵訊息 / 合照 / 今日照片」✨
+                你已完成今日目標的 <span className="font-semibold text-rose-700">2/3</span>，現在可以解鎖「鼓勵訊息 / 合照 /
+                今日照片」✨
               </p>
             </div>
 
@@ -1057,7 +1024,7 @@ export default function TodayPage() {
   );
 }
 
-/** ✅ 寫入 daily_records：改成用 couple_id + date 當共享資料 */
+/** ✅ 寫入：用 couple_id + date 做 upsert */
 async function saveDailyToSupabase({
   coupleId,
   date,
@@ -1077,7 +1044,17 @@ async function saveDailyToSupabase({
   couplePhotoPath?: string;
   dailyPhotoPaths?: string[];
 }) {
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+
+  if (userErr) return { error: userErr };
+  if (!user) return { error: new Error("No user session (not logged in)") };
+
   const payload: any = {
+    // 保留 user_id（誰最後更新不重要，RLS 已用 couple_id）
+    user_id: user.id,
     couple_id: coupleId,
     date,
     done,
@@ -1088,15 +1065,14 @@ async function saveDailyToSupabase({
     daily_photo_paths: Array.isArray(dailyPhotoPaths) ? dailyPhotoPaths : null,
   };
 
-  // ✅ 重點：確保你的表有 unique(couple_id, date) 或 primary key (couple_id, date)
   const { error } = await supabase
     .from("daily_records")
-    .upsert(payload, { onConflict: "couple_id,date" });
+    .upsert(payload, { onConflict: "couple_id,date" }); // ✅ 重要：避免 duplicate key
 
   return { error };
 }
 
-/** ✅ 讀取最近 30 天：改用 couple_id */
+/** ✅ 讀取：用 couple_id */
 async function fetchDailyFromSupabase(coupleId: string) {
   const { data, error } = await supabase
     .from("daily_records")
