@@ -713,7 +713,7 @@ export default function TodayPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">陪考日記 · 今日</h1>
             <p className="text-sm text-zinc-600">
-              完成 <span className="font-semibold text-rose-700">2/3</span> 即解鎖「鼓勵訊息 / 合照 / 今日照片」✨
+              ✨完成 <span className="font-semibold text-rose-700">2/3</span> 即解鎖「鼓勵訊息 / 合照 / 今日照片」✨
             </p>
 
             <p className="text-xs text-zinc-500 mt-2">
@@ -721,8 +721,8 @@ export default function TodayPage() {
               <span className="font-mono">{myRole ?? "(loading)"}</span>
             </p>
           </header>
-          <footer className="text-xs text-zinc-500 text-center">
-            💫星光不負趕路者💫
+          <footer className="text-2xl text-zinc-800 text-center">
+            💫 星光不負趕路者 💫
           </footer>
           <nav className="hidden sm:block rounded-3xl border border-rose-200/60 bg-white/70 p-3 shadow-sm">
             <div className="grid grid-cols-4 gap-2">
@@ -889,7 +889,7 @@ export default function TodayPage() {
                               <span className="font-medium text-rose-700">對方今天讀：</span> {partnerNote}
                             </div>
                           ) : (
-                            <div className="text-xs text-zinc-500">對方這科今天還沒寫內容～</div>
+                            <div className="text-xs text-zinc-500">這科今天還沒寫內容～</div>
                           )}
                         </div>
 
@@ -994,7 +994,7 @@ export default function TodayPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold">兩人合照（永久）</h2>
-                    <p className="text-sm text-zinc-600">兩邊都可以上傳；writer 未達 2/3 前只看得到自己的，達標後就會看到 rueiyu 上傳的內容。</p>
+                    <p className="text-sm text-zinc-600">兩邊都可以上傳；wilson 未達 2/3 前只看得到自己的，達標後就會看到 rueiyu 上傳的內容。</p>
                   </div>
 
                   <label
