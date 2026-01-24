@@ -721,7 +721,9 @@ export default function TodayPage() {
               <span className="font-mono">{myRole ?? "(loading)"}</span>
             </p>
           </header>
-
+          <footer className="text-xs text-zinc-500 text-center">
+            💫星光不負趕路者💫
+          </footer>
           <nav className="hidden sm:block rounded-3xl border border-rose-200/60 bg-white/70 p-3 shadow-sm">
             <div className="grid grid-cols-4 gap-2">
               <TabButton active={tab === "checkin"} onClick={() => setTab("checkin")} icon="📝" label="打卡" />
@@ -1277,9 +1279,7 @@ export default function TodayPage() {
             </div>
           )}
 
-          <footer className="text-xs text-zinc-500 text-center">
-            💫星光不負趕路者💫
-          </footer>
+          
         </div>
       </div>
 
