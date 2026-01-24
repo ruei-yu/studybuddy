@@ -903,89 +903,123 @@ export default function TodayPage() {
           )}
 
           {/* Tab: 解鎖 */}
-          {tab === "unlock" && (
-            <div className="space-y-6">
-              <section
-                id="unlock-section"
-                ref={(el) => {
-                  unlockSectionRef.current = el;
-                }}
-                className={`rounded-3xl border p-5 shadow-sm space-y-4 ${
-                  effectiveUnlocked ? "border-emerald-200 bg-emerald-50" : "border-rose-200/60 bg-white/80"
-                }`}
-              >
-                <h2 className="text-lg font-semibold">🎁 解鎖區</h2>
+{tab === "unlock" && (
+  <>
+    {/* ✅ rueiyu（supporter）在解鎖頁也能直接編輯「我寫給對方的一句話」 */}
+    {myRole === "supporter" && (
+      <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-zinc-900">✍️ 我寫給對方的今日一句話</div>
+          <div className="text-[11px] text-zinc-500">（對方解鎖後才看得到）</div>
+        </div>
 
-                {!effectiveUnlocked ? (
-                  <div className="space-y-4">
-                    <div className="text-sm text-zinc-700 leading-relaxed">
-                      完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到「鼓勵訊息 / 合照 / 今日照片」🌷
-                    </div>
+        <textarea
+          className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+          rows={3}
+          placeholder="例如：今天你很棒，我看到你的努力了。慢慢來，我一直在 💛"
+          value={myMessageDraft}
+          onChange={(e) => setMyMessageDraft(e.target.value)}
+          onBlur={async () => {
+            if (!coupleId || !myRole) return;
+            await saveMyContent({
+              coupleId,
+              date: dateKey,
+              myRole,
+              partnerMessage: myMessageDraft || undefined,
+              couplePhotoPath: myCouplePhotoPath || undefined,
+              dailyPhotoPaths: myDailyPhotoPaths.length ? myDailyPhotoPaths : undefined,
+            });
+          }}
+        />
+      </div>
+    )}
 
-                    <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
-                      還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span> 小時就解鎖囉～我在這裡等你 ✨
-                    </div>
+    <div className="space-y-6">
+      <section
+        id="unlock-section"
+        ref={(el) => {
+          unlockSectionRef.current = el;
+        }}
+        className={`rounded-3xl border p-5 shadow-sm space-y-4 ${
+          effectiveUnlocked ? "border-emerald-200 bg-emerald-50" : "border-rose-200/60 bg-white/80"
+        }`}
+      >
+        <h2 className="text-lg font-semibold">🎁 解鎖區</h2>
 
-                    <button
-                      className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
-                      onClick={() => setTab("checkin")}
-                    >
-                      回去打卡 📝
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4">
-                      <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話（鼓勵訊息）</div>
-                      <div className="text-base text-zinc-900 leading-relaxed">{unlockMessageText}</div>
-                    </div>
-
-                    <button
-                      className="w-full rounded-2xl border border-emerald-200 bg-white/90 py-3 font-medium text-emerald-700 active:scale-[0.99]"
-                      onClick={() => setTab("photos")}
-                    >
-                      去看合照與今日照片 📷
-                    </button>
-                  </div>
-                )}
-
-                {/* ✅ 心得日記：不管有沒有解鎖都能寫，而且兩個人互看 */}
-                <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-zinc-900">📝 今日心得日記（永遠可寫／永遠互看）</div>
-                    <div className="text-[11px] text-zinc-500">（不受解鎖影響）</div>
-                  </div>
-
-                  <textarea
-                    className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
-                    rows={4}
-                    placeholder="寫下今天的心得、卡住的點、明天要怎麼做、想對彼此說的話…"
-                    value={myDiaryDraft}
-                    onChange={(e) => setMyDiaryDraft(e.target.value)}
-                    onBlur={async () => {
-                      await saveOpenNow(undefined, myDiaryDraft);
-                      setHistory((prev) => {
-                        const nextH: HistoryStore = { ...prev };
-                        const ex = nextH[dateKey] || { done: subjects.map(() => 0) };
-                        nextH[dateKey] = { ...ex, myDiary: myDiaryDraft };
-                        writeHistory(nextH);
-                        return nextH;
-                      });
-                    }}
-                  />
-
-                  {partnerDiary.trim() ? (
-                    <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
-                      <div className="font-medium text-rose-700 mb-1">對方的心得：</div>
-                      <div className="whitespace-pre-wrap leading-relaxed">{partnerDiary}</div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-zinc-500">對方今天還沒寫心得～</div>
-                  )}
-                </div>
-              </section>
+        {!effectiveUnlocked ? (
+          <div className="space-y-4">
+            <div className="text-sm text-zinc-700 leading-relaxed">
+              完成今日目標 <span className="text-rose-700 font-semibold">2/3</span>{" "}
+              才能看到「鼓勵訊息 / 合照 / 今日照片」🌷
             </div>
+
+            <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
+              還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span>{" "}
+              小時就解鎖囉～我在這裡等你 ✨
+            </div>
+
+            <button
+              className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
+              onClick={() => setTab("checkin")}
+            >
+              回去打卡 📝
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4">
+              <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話（鼓勵訊息）</div>
+              <div className="text-base text-zinc-900 leading-relaxed">{unlockMessageText}</div>
+            </div>
+
+            <button
+              className="w-full rounded-2xl border border-emerald-200 bg-white/90 py-3 font-medium text-emerald-700 active:scale-[0.99]"
+              onClick={() => setTab("photos")}
+            >
+              去看合照與今日照片 📷
+            </button>
+          </div>
+        )}
+
+        {/* ✅ 心得日記：不管有沒有解鎖都能寫，而且兩個人互看 */}
+        <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-semibold text-zinc-900">📝 今日心得日記（永遠可寫／永遠互看）</div>
+            <div className="text-[11px] text-zinc-500">（不受解鎖影響）</div>
+          </div>
+
+          <textarea
+            className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+            rows={4}
+            placeholder="寫下今天的心得、卡住的點、明天要怎麼做、想對彼此說的話…"
+            value={myDiaryDraft}
+            onChange={(e) => setMyDiaryDraft(e.target.value)}
+            onBlur={async () => {
+              await saveOpenNow(undefined, myDiaryDraft);
+              setHistory((prev) => {
+                const nextH: HistoryStore = { ...prev };
+                const ex = nextH[dateKey] || { done: subjects.map(() => 0) };
+                nextH[dateKey] = { ...ex, myDiary: myDiaryDraft };
+                writeHistory(nextH);
+                return nextH;
+              });
+            }}
+          />
+
+          {partnerDiary.trim() ? (
+            <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
+              <div className="font-medium text-rose-700 mb-1">對方的心得：</div>
+              <div className="whitespace-pre-wrap leading-relaxed">{partnerDiary}</div>
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-500">對方今天還沒寫心得～</div>
           )}
+        </div>
+      </section>
+    </div>
+  </>
+)}
+
 
           {/* Tab: 照片/一句話 */}
           {tab === "photos" && (
