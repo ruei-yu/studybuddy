@@ -47,7 +47,7 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center bg-rose-50 px-4">
       <div className="w-full max-w-sm rounded-3xl border border-rose-200 bg-white p-6 shadow-sm space-y-4">
         <h1 className="text-xl font-semibold text-zinc-900">StudyBuddy 登入</h1>
-        <p className="text-sm text-zinc-600">輸入名字 + PIN（不寄信，只需一次）</p>
+        <p className="text-sm text-zinc-600">輸入名字 + PIN</p>
 
         <div className="space-y-2">
           <div className="text-sm text-zinc-400">名字</div>
