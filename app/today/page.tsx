@@ -436,6 +436,12 @@ export default function TodayPage() {
     const el = document.getElementById("unlock-section");
     el?.scrollIntoView({ behavior: "smooth" });
   }
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    localStorage.removeItem("sb_name");
+    localStorage.removeItem("sb_role_hint");
+    location.href = "/login";
+  }
 
   // ✅ 上傳：合照（改用 coupleId folder）
   async function uploadCouplePhoto(file: File | null) {
@@ -560,7 +566,16 @@ export default function TodayPage() {
 
       <div className="pb-28">
         <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
-          <header className="space-y-2 text-center">
+          <header className="relative space-y-2 text-center">
+            <div className="absolute right-4 top-4">
+              <button
+              onClick={handleLogout}
+              className="rounded-2xl border border-rose-200 bg-white/80 px-4 py-2 text-sm font-medium text-rose-700 hover:bg-white active:scale-[0.99]"
+              >
+              登出
+              </button>
+            </div>
+
             <div className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white/70 px-4 py-2 text-sm text-rose-700 shadow-sm">
               <span>🌷</span>
               <span>今天也一起穩穩前進</span>
@@ -1114,15 +1129,5 @@ async function getMyProfile() {
 
   return { profile: data, error };
 }
-<button
-  className="text-sm rounded-2xl border px-4 py-2"
-  onClick={async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem("sb_name");
-    localStorage.removeItem("sb_role_hint");
-    location.href = "/login";
-  }}
->
-  登出
-</button>
+
 
