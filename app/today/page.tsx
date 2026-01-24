@@ -1113,21 +1113,44 @@ async function fetchDailyFromSupabase(coupleId: string) {
 
 /** ✅ 取自己的 couple_id / role */
 async function getMyProfile() {
+  const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+  console.log("[session]", sessionData?.session?.user?.id, sessionData?.session?.user?.email);
+
   const {
     data: { user },
     error: userErr,
   } = await supabase.auth.getUser();
 
-  if (userErr) return { profile: null, error: userErr };
-  if (!user) return { profile: null, error: new Error("No user session") };
+  if (userErr) {
+    console.error("[getUser] error:", userErr);
+    return { profile: null, error: userErr };
+  }
+  if (!user) {
+    console.error("[getMyProfile] no user session");
+    return { profile: null, error: new Error("No user session") };
+  }
+
+  console.log("[getMyProfile] user.id =", user.id);
 
   const { data, error } = await supabase
     .from("profiles")
     .select("couple_id, role")
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle(); // ✅ 先用 maybeSingle 避免 406
 
-  return { profile: data, error };
+  if (error) {
+    console.error("[getMyProfile] query error:", error);
+    return { profile: null, error };
+  }
+
+  if (!data) {
+    console.error("[getMyProfile] profile not found for user_id:", user.id);
+    return { profile: null, error: new Error("Profile not found") };
+  }
+
+  console.log("[getMyProfile] OK:", data);
+  return { profile: data, error: null };
 }
+
 
 
