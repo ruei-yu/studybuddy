@@ -385,7 +385,7 @@ export default function TodayPage() {
     canSeePartner && partnerMessage.trim()
       ? partnerMessage.trim()
       : canSeePartner
-      ? "我看到你今天的努力了，真的很為你驕傲。累了就休息一下，但別忘了你一直都在變強，我會一直陪你 💛"
+      ? " 一切都是最好的安排💛"
       : "（未解鎖：達到 2/3 後就能看到對方給你的內容 💛）";
 
   // fetch + build 30 days history + hydrate today from DB
@@ -992,7 +992,7 @@ export default function TodayPage() {
                   <textarea
                     className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
                     rows={3}
-                    placeholder="一切都是最好的安排💛"
+                    placeholder="一切都是最好的安排💛我會陪著你！"
                     value={myMessageDraft}
                     onChange={(e) => {
                       dirtyRef.current.message = true;
