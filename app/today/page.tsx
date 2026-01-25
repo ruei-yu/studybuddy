@@ -17,6 +17,15 @@ const subjects = [
 
 type Role = "supporter" | "writer";
 type TabKey = "checkin" | "unlock" | "photos" | "history";
+type HistoryRange = "30" | "90" | "all";
+
+// ✅ 回顧牆最早從這天開始（1/25）
+const MIN_HISTORY_DATE = "2026-01-25";
+
+function maxISODate(a: string, b: string) {
+  return a > b ? a : b; // ISO yyyy-mm-dd 字串可直接比較
+}
+
 
 type ContentRow = {
   couple_id: string;
@@ -280,6 +289,16 @@ export default function TodayPage() {
   const unlockSectionRef = useRef<HTMLElement | null>(null);
 
   const [tab, setTab] = useState<TabKey>("checkin");
+    // 回顧牆範圍：30天 / 90天 / 全部（但全部也只從 2026-01-25 開始）
+  const [historyRange, setHistoryRange] = useState<HistoryRange>("30");
+
+  // UI 顯示用：目前回顧牆的起算日
+  const historyFromDate = useMemo(() => {
+    const days = historyRange === "30" ? 29 : historyRange === "90" ? 89 : null;
+    const candidate = days === null ? MIN_HISTORY_DATE : isoDaysAgo(days);
+    return maxISODate(MIN_HISTORY_DATE, candidate);
+  }, [historyRange]);
+
 
   // auth/profile
   const [coupleId, setCoupleId] = useState<string | null>(null);
@@ -389,16 +408,20 @@ export default function TodayPage() {
       : "（未解鎖：達到 2/3 後就能看到對方給你的內容 💛）";
 
   // fetch + build 30 days history + hydrate today from DB
-  const reloadAll = async () => {
+    const reloadAll = async () => {
     if (!coupleId || !myUserId || !myRole) return;
 
-    const fromDate = isoDaysAgo(29);
+    // ✅ 依 range 決定 fromDate，但永遠不早於 2026-01-25
+    const days = historyRange === "30" ? 29 : historyRange === "90" ? 89 : null;
+    const candidateFrom = days === null ? MIN_HISTORY_DATE : isoDaysAgo(days);
+    const fromDate = maxISODate(MIN_HISTORY_DATE, candidateFrom);
+    const today = todayISO();
 
     const [progRes, openRes, dayTodayRes, dayRangeRes] = await Promise.all([
       fetchCoupleProgress(coupleId, fromDate),
       fetchOpenContentRange(coupleId, fromDate),
       fetchDayContent(coupleId, dateKey), // today locked content
-      fetchDayContentRange(coupleId, fromDate), // history locked content (RLS may hide some)
+      fetchDayContentRange(coupleId, fromDate), // history locked content
     ]);
 
     if (progRes.error) console.error("[fetchCoupleProgress] error:", progRes.error);
@@ -429,7 +452,7 @@ export default function TodayPage() {
       else byDateOpen[d].other = r;
     }
 
-    // ✅ build map: day_content (locked) by date -> mine/other
+    // build map: day_content (locked) by date -> mine/other
     const byDateContent: Record<string, { mine?: ContentRow; other?: ContentRow }> = {};
     for (const r of contentRangeRows) {
       const d = r.date;
@@ -438,14 +461,17 @@ export default function TodayPage() {
       else byDateContent[d].other = r;
     }
 
-    // build history 30 days
-    const dates: string[] = [];
-    for (let i = 0; i < 30; i++) {
-      const d = isoDaysAgo(i);
-      dates.push(d);
-    }
+    // ✅ 回顧牆日期：只顯示「真的有資料的日期」
+    const dateSet = new Set<string>();
+    for (const r of prog) dateSet.add(r.date);
+    for (const r of openRows) dateSet.add(r.date);
+    for (const r of contentRangeRows) dateSet.add(r.date);
+
+    // 同時保證 >= fromDate 且 >= 2026-01-25 且 <= today
+    const dates = Array.from(dateSet).filter((d) => d >= fromDate && d >= MIN_HISTORY_DATE && d <= today);
 
     const nextHistory: Record<string, DayRecord> = {};
+
     for (const d of dates) {
       const mine = byDateProg[d]?.mine;
       const other = byDateProg[d]?.other;
@@ -481,11 +507,9 @@ export default function TodayPage() {
         partnerDone,
         partnerTotalDone: partnerTotal,
 
-        // ✅ 我寫給對方的（supporter 回顧要看這個）
         myPartnerMessage: mineContent?.partner_message ?? "",
         myDailyPhotoPaths: Array.isArray(mineContent?.daily_photo_paths) ? mineContent!.daily_photo_paths! : [],
 
-        // ✅ 對方寫給我的（writer 解鎖後會看到這個）
         partnerMessage: otherContent?.partner_message ?? "",
         partnerDailyPhotoPaths: Array.isArray(otherContent?.daily_photo_paths) ? otherContent!.daily_photo_paths! : [],
 
@@ -498,26 +522,21 @@ export default function TodayPage() {
 
     setHistory(nextHistory);
 
-    // hydrate TODAY inputs (只在第一次、或你沒有 dirty 的情況下更新，避免「跳掉」)
+    // hydrate TODAY progress（第一次才抓）
     const todayMine = byDateProg[dateKey]?.mine;
     if (!hydratedTodayRef.current) {
       hydratedTodayRef.current = true;
       if (todayMine?.done && Array.isArray(todayMine.done)) setDone(todayMine.done as number[]);
-    } else {
-      // 之後進來不要強行覆蓋 done（你可能正在點 +0.5）
-      // if (todayMine?.done && Array.isArray(todayMine.done)) setDone(todayMine.done as number[]);
     }
 
     // today locked content
     const mineContentToday = todayContentRows.find((r) => r.author_id === myUserId) ?? null;
     const otherContentToday = todayContentRows.find((r) => r.author_id !== myUserId) ?? null;
 
-    // 我的 locked content：可編輯，但不要覆蓋你正在打的字
     if (!dirtyRef.current.message) setMyMessageDraft(mineContentToday?.partner_message ?? "");
     setMyCouplePhotoPath(mineContentToday?.couple_photo_path ?? null);
     setMyDailyPhotoPaths(Array.isArray(mineContentToday?.daily_photo_paths) ? mineContentToday!.daily_photo_paths! : []);
 
-    // 對方 locked content：永遠以 DB 為準
     setPartnerMessage(otherContentToday?.partner_message ?? "");
     setPartnerDailyPhotoPaths(Array.isArray(otherContentToday?.daily_photo_paths) ? otherContentToday!.daily_photo_paths! : []);
 
@@ -531,17 +550,17 @@ export default function TodayPage() {
     if (!dirtyRef.current.diary) setMyDiaryDraft(todayOpenMine?.unlock_diary ?? "");
     setPartnerDiary(todayOpenOther?.unlock_diary ?? "");
 
-    // refresh couple photo cache bust
     setCouplePhotoVersion(Date.now());
     setCoupleImgFailed(false);
   };
+
 
   // first load + reload when coupleId ready
   useEffect(() => {
     if (!coupleId || !myUserId || !myRole) return;
     reloadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coupleId, myUserId, myRole, dateKey]);
+  }, [coupleId, myUserId, myRole, dateKey, historyRange]);
 
   // Realtime subscriptions (cross devices instant sync)
   useEffect(() => {
@@ -558,7 +577,7 @@ export default function TodayPage() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coupleId, myUserId]);
+  }, [coupleId, myUserId, historyRange]);
 
   // autosave progress (debounced)
   useEffect(() => {
@@ -1161,12 +1180,36 @@ export default function TodayPage() {
                     <h2 className="text-lg font-semibold">🗓️ 回顧牆</h2>
                     <p className="text-sm text-zinc-600">
                       💌 感謝過去的自己，造就今天的我們。
-                      
                     </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(["30", "90", "all"] as HistoryRange[]).map((k) => {
+                      const active = historyRange === k;
+                      const label = k === "30" ? "30 天" : k === "90" ? "90 天" : "全部";
+                      return (
+                        <button
+                          key={k}
+                          onClick={() => setHistoryRange(k)}
+                          className={`rounded-2xl px-4 py-2 text-sm font-medium border transition ${
+                            active
+                              ? "bg-rose-600 text-white border-rose-600"
+                              : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                    <div className="ml-auto text-xs text-zinc-500">
+                      顯示：{historyFromDate} ~ {todayISO()}
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-rose-200 bg-white/70 p-4">
-                    <div className="text-sm font-medium text-zinc-900">📈 累計總時數（近 30 天）</div>
+                    <div className="text-sm font-medium text-zinc-900">
+                      📈 累計總時數（{historyRange === "30" ? "30 天" : historyRange === "90" ? "90 天" : "全部"}，自 1/25 起）
+                    </div>
+
                     <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
                       <div className="rounded-2xl border border-rose-200 bg-white/80 p-3">
                         <div className="text-zinc-500 text-xs">我</div>
