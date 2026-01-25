@@ -22,6 +22,10 @@ type DayRecord = {
   totalDone?: number;
   unlocked?: boolean;
 
+  // ✅ 新增：對方用功（回顧牆用）
+  partnerTotalDone?: number;
+  partnerDone?: number[];
+
   // 只用於本機回顧牆顯示（會從 study_progress + day_content + day_open_content 合併）
   partnerMessage?: string;
   couplePhotoPath?: string;
@@ -323,11 +327,7 @@ export default function TodayPage() {
 
   // ✅ 解鎖規則：supporter 永遠解鎖；writer 以自己打卡達 2/3 為準
   const effectiveUnlocked =
-    myRole === "supporter"
-      ? true
-      : totalTarget === 0
-      ? false
-      : localTotalDone / totalTarget >= 2 / 3;
+    myRole === "supporter" ? true : totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3;
 
   const needHoursToUnlock = Math.max(0, (2 / 3) * totalTarget - localTotalDone);
   const unlockBadge = effectiveUnlocked ? "已解鎖" : `差 ${needHoursToUnlock.toFixed(1)}h`;
@@ -377,7 +377,7 @@ export default function TodayPage() {
             next[row.date] = {
               ...(next[row.date] || {}),
               done: Array.isArray(row.done) ? row.done : subjects.map(() => 0),
-              totalDone: typeof row.total_done === "number" ? row.total_done : (next[row.date]?.totalDone ?? 0),
+              totalDone: typeof row.total_done === "number" ? row.total_done : next[row.date]?.totalDone ?? 0,
               unlocked: typeof row.unlocked === "boolean" ? row.unlocked : next[row.date]?.unlocked,
               unlockModalShown: next[row.date]?.unlockModalShown ?? false,
             };
@@ -388,6 +388,53 @@ export default function TodayPage() {
 
         const todayRow = (prog as any[]).find((x) => x.date === dateKey);
         if (todayRow?.done && Array.isArray(todayRow.done)) setDone(todayRow.done);
+      }
+
+      // ✅ 2-1b) 抓同 couple 的兩人用功（回顧牆顯示對方時數）
+      const fromProgDate = isoDaysAgo(29);
+      const { data: bothProg, error: bothErr } = await fetchCoupleProgress(coupleId, fromProgDate);
+      if (bothErr) console.error("[fetchCoupleProgress] error:", bothErr);
+
+      if (Array.isArray(bothProg)) {
+        const map = new Map<string, { mine?: any; other?: any }>();
+        for (const row of bothProg) {
+          const d = row.date;
+          const ex = map.get(d) || {};
+          if (row.user_id === myUserId) ex.mine = row;
+          else ex.other = row;
+          map.set(d, ex);
+        }
+
+        setHistory((prev) => {
+          const next: HistoryStore = { ...prev };
+
+          for (const [d, pair] of map.entries()) {
+            const ex = next[d] || { done: subjects.map(() => 0) };
+            const myRow = pair.mine;
+            const otRow = pair.other;
+
+            const myTotal =
+              typeof myRow?.total_done === "number"
+                ? myRow.total_done
+                : typeof ex.totalDone === "number"
+                ? ex.totalDone
+                : (ex.done || []).reduce((s: number, x: any) => s + (Number(x) || 0), 0);
+
+            next[d] = {
+              ...ex,
+              // 我
+              done: Array.isArray(myRow?.done) ? myRow.done : ex.done,
+              totalDone: myTotal,
+
+              // 對方
+              partnerTotalDone: typeof otRow?.total_done === "number" ? otRow.total_done : ex.partnerTotalDone,
+              partnerDone: Array.isArray(otRow?.done) ? otRow.done : ex.partnerDone,
+            };
+          }
+
+          writeHistory(next);
+          return next;
+        });
       }
 
       // 2-2) 抓今天內容（照片/一句話：RLS 會自動過濾）
@@ -721,20 +768,14 @@ export default function TodayPage() {
               <span className="font-mono">{myRole ?? "(loading)"}</span>
             </p>
           </header>
-          <footer className="text-2xl text-zinc-800 text-center">
-            💫 星光不負趕路者 💫
-          </footer>
+
+          <footer className="text-2xl text-zinc-800 text-center">💫 星光不負趕路者 💫</footer>
+
           <nav className="hidden sm:block rounded-3xl border border-rose-200/60 bg-white/70 p-3 shadow-sm">
             <div className="grid grid-cols-4 gap-2">
               <TabButton active={tab === "checkin"} onClick={() => setTab("checkin")} icon="📝" label="打卡" />
               <TabButton active={tab === "unlock"} onClick={() => setTab("unlock")} icon="🎁" label="解鎖" badge={unlockBadge} />
-              <TabButton
-                active={tab === "photos"}
-                onClick={() => setTab("photos")}
-                icon="📷"
-                label="照片/一句話"
-                badge={photosBadge}
-              />
+              <TabButton active={tab === "photos"} onClick={() => setTab("photos")} icon="📷" label="照片/一句話" badge={photosBadge} />
               <TabButton active={tab === "history"} onClick={() => setTab("history")} icon="🗓️" label="回顧牆" />
             </div>
           </nav>
@@ -893,7 +934,9 @@ export default function TodayPage() {
                           )}
                         </div>
 
-                        <div className="text-xs text-zinc-500">小提醒：每次變動會在 0.6 秒後自動同步 Supabase（時數）；文字內容在離開輸入框時同步。</div>
+                        <div className="text-xs text-zinc-500">
+                          小提醒：每次變動會在 0.6 秒後自動同步 Supabase（時數）；文字內容在離開輸入框時同步。
+                        </div>
                       </div>
                     );
                   })}
@@ -903,123 +946,120 @@ export default function TodayPage() {
           )}
 
           {/* Tab: 解鎖 */}
-{tab === "unlock" && (
-  <>
-    {/* ✅ rueiyu（supporter）在解鎖頁也能直接編輯「我寫給對方的一句話」 */}
-    {myRole === "supporter" && (
-      <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="font-semibold text-zinc-900">✍️ 我寫給對方的今日一句話</div>
-          <div className="text-[11px] text-zinc-500">（對方解鎖後才看得到）</div>
-        </div>
+          {tab === "unlock" && (
+            <>
+              {/* ✅ rueiyu（supporter）在解鎖頁也能直接編輯「我寫給對方的一句話」 */}
+              {myRole === "supporter" && (
+                <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold text-zinc-900">✍️ 我寫給對方的今日一句話</div>
+                    <div className="text-[11px] text-zinc-500">（對方解鎖後才看得到）</div>
+                  </div>
 
-        <textarea
-          className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
-          rows={3}
-          placeholder="例如：今天你很棒，我看到你的努力了。慢慢來，我一直在 💛"
-          value={myMessageDraft}
-          onChange={(e) => setMyMessageDraft(e.target.value)}
-          onBlur={async () => {
-            if (!coupleId || !myRole) return;
-            await saveMyContent({
-              coupleId,
-              date: dateKey,
-              myRole,
-              partnerMessage: myMessageDraft || undefined,
-              couplePhotoPath: myCouplePhotoPath || undefined,
-              dailyPhotoPaths: myDailyPhotoPaths.length ? myDailyPhotoPaths : undefined,
-            });
-          }}
-        />
-      </div>
-    )}
+                  <textarea
+                    className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                    rows={3}
+                    placeholder="例如：今天你很棒，我看到你的努力了。慢慢來，我一直在 💛"
+                    value={myMessageDraft}
+                    onChange={(e) => setMyMessageDraft(e.target.value)}
+                    onBlur={async () => {
+                      if (!coupleId || !myRole) return;
+                      await saveMyContent({
+                        coupleId,
+                        date: dateKey,
+                        myRole,
+                        partnerMessage: myMessageDraft || undefined,
+                        couplePhotoPath: myCouplePhotoPath || undefined,
+                        dailyPhotoPaths: myDailyPhotoPaths.length ? myDailyPhotoPaths : undefined,
+                      });
+                    }}
+                  />
+                </div>
+              )}
 
-    <div className="space-y-6">
-      <section
-        id="unlock-section"
-        ref={(el) => {
-          unlockSectionRef.current = el;
-        }}
-        className={`rounded-3xl border p-5 shadow-sm space-y-4 ${
-          effectiveUnlocked ? "border-emerald-200 bg-emerald-50" : "border-rose-200/60 bg-white/80"
-        }`}
-      >
-        <h2 className="text-lg font-semibold">🎁 解鎖區</h2>
+              <div className="space-y-6">
+                <section
+                  id="unlock-section"
+                  ref={(el) => {
+                    unlockSectionRef.current = el;
+                  }}
+                  className={`rounded-3xl border p-5 shadow-sm space-y-4 ${
+                    effectiveUnlocked ? "border-emerald-200 bg-emerald-50" : "border-rose-200/60 bg-white/80"
+                  }`}
+                >
+                  <h2 className="text-lg font-semibold">🎁 解鎖區</h2>
 
-        {!effectiveUnlocked ? (
-          <div className="space-y-4">
-            <div className="text-sm text-zinc-700 leading-relaxed">
-              完成今日目標 <span className="text-rose-700 font-semibold">2/3</span>{" "}
-              才能看到「鼓勵訊息 / 合照 / 今日照片」🌷
-            </div>
+                  {!effectiveUnlocked ? (
+                    <div className="space-y-4">
+                      <div className="text-sm text-zinc-700 leading-relaxed">
+                        完成今日目標 <span className="text-rose-700 font-semibold">2/3</span> 才能看到「鼓勵訊息 / 合照 / 今日照片」🌷
+                      </div>
 
-            <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
-              還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span>{" "}
-              小時就解鎖囉～我在這裡等你 ✨
-            </div>
+                      <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-amber-700">
+                        還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span> 小時就解鎖囉～我在這裡等你 ✨
+                      </div>
 
-            <button
-              className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
-              onClick={() => setTab("checkin")}
-            >
-              回去打卡 📝
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4">
-              <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話（鼓勵訊息）</div>
-              <div className="text-base text-zinc-900 leading-relaxed">{unlockMessageText}</div>
-            </div>
+                      <button
+                        className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
+                        onClick={() => setTab("checkin")}
+                      >
+                        回去打卡 📝
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4">
+                        <div className="text-sm text-emerald-700 mb-2 font-medium">今日一句話（鼓勵訊息）</div>
+                        <div className="text-base text-zinc-900 leading-relaxed">{unlockMessageText}</div>
+                      </div>
 
-            <button
-              className="w-full rounded-2xl border border-emerald-200 bg-white/90 py-3 font-medium text-emerald-700 active:scale-[0.99]"
-              onClick={() => setTab("photos")}
-            >
-              去看合照與今日照片 📷
-            </button>
-          </div>
-        )}
+                      <button
+                        className="w-full rounded-2xl border border-emerald-200 bg-white/90 py-3 font-medium text-emerald-700 active:scale-[0.99]"
+                        onClick={() => setTab("photos")}
+                      >
+                        去看合照與今日照片 📷
+                      </button>
+                    </div>
+                  )}
 
-        {/* ✅ 心得日記：不管有沒有解鎖都能寫，而且兩個人互看 */}
-        <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-semibold text-zinc-900">📝 今日心得日記（永遠可寫／永遠互看）</div>
-            <div className="text-[11px] text-zinc-500">（不受解鎖影響）</div>
-          </div>
+                  {/* ✅ 心得日記：不管有沒有解鎖都能寫，而且兩個人互看 */}
+                  <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-semibold text-zinc-900">📝 今日心得日記（永遠可寫／永遠互看）</div>
+                      <div className="text-[11px] text-zinc-500">（不受解鎖影響）</div>
+                    </div>
 
-          <textarea
-            className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
-            rows={4}
-            placeholder="寫下今天的心得、卡住的點、明天要怎麼做、想對彼此說的話…"
-            value={myDiaryDraft}
-            onChange={(e) => setMyDiaryDraft(e.target.value)}
-            onBlur={async () => {
-              await saveOpenNow(undefined, myDiaryDraft);
-              setHistory((prev) => {
-                const nextH: HistoryStore = { ...prev };
-                const ex = nextH[dateKey] || { done: subjects.map(() => 0) };
-                nextH[dateKey] = { ...ex, myDiary: myDiaryDraft };
-                writeHistory(nextH);
-                return nextH;
-              });
-            }}
-          />
+                    <textarea
+                      className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                      rows={4}
+                      placeholder="寫下今天的心得、卡住的點、明天要怎麼做、想對彼此說的話…"
+                      value={myDiaryDraft}
+                      onChange={(e) => setMyDiaryDraft(e.target.value)}
+                      onBlur={async () => {
+                        await saveOpenNow(undefined, myDiaryDraft);
+                        setHistory((prev) => {
+                          const nextH: HistoryStore = { ...prev };
+                          const ex = nextH[dateKey] || { done: subjects.map(() => 0) };
+                          nextH[dateKey] = { ...ex, myDiary: myDiaryDraft };
+                          writeHistory(nextH);
+                          return nextH;
+                        });
+                      }}
+                    />
 
-          {partnerDiary.trim() ? (
-            <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
-              <div className="font-medium text-rose-700 mb-1">對方的心得：</div>
-              <div className="whitespace-pre-wrap leading-relaxed">{partnerDiary}</div>
-            </div>
-          ) : (
-            <div className="text-xs text-zinc-500">對方今天還沒寫心得～</div>
+                    {partnerDiary.trim() ? (
+                      <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
+                        <div className="font-medium text-rose-700 mb-1">對方的心得：</div>
+                        <div className="whitespace-pre-wrap leading-relaxed">{partnerDiary}</div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-zinc-500">對方今天還沒寫心得～</div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </>
           )}
-        </div>
-      </section>
-    </div>
-  </>
-)}
-
 
           {/* Tab: 照片/一句話 */}
           {tab === "photos" && (
@@ -1177,6 +1217,27 @@ export default function TodayPage() {
                   </button>
                 </div>
 
+                {/* ✅ 近 30 天累計（依目前載入範圍） */}
+                {dates.length > 0 && (
+                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-700">
+                    {(() => {
+                      const mySum = dates.reduce((acc, d) => acc + (Number(history[d]?.totalDone) || 0), 0);
+                      const ptSum = dates.reduce((acc, d) => acc + (Number(history[d]?.partnerTotalDone) || 0), 0);
+                      const both = mySum + ptSum;
+                      return (
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="font-medium">📊 近 30 天累計用功</div>
+                          <div>
+                            我：<span className="font-semibold">{mySum.toFixed(1)}h</span> ／ 對方：
+                            <span className="font-semibold">{ptSum.toFixed(1)}h</span> ／ 合計：
+                            <span className="font-semibold text-rose-700">{both.toFixed(1)}h</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {dates.length === 0 ? (
                   <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">還沒有紀錄～從今天開始累積，回顧牆會越來越可愛 ✨</div>
                 ) : (
@@ -1188,6 +1249,8 @@ export default function TodayPage() {
                         typeof r?.totalDone === "number"
                           ? r.totalDone
                           : (r?.done || []).reduce((s, x) => s + (Number(x) || 0), 0);
+
+                      const ptTotal = Number(r?.partnerTotalDone) || 0;
 
                       const isUnlock =
                         myRole === "supporter"
@@ -1207,8 +1270,7 @@ export default function TodayPage() {
                       const myDiary = (r?.myDiary ?? "").trim();
                       const ptDiary = (r?.partnerDiary ?? "").trim();
 
-                      const hasAnyNotes =
-                        myNotes.some((x) => x.trim()) || ptNotes.some((x) => x.trim());
+                      const hasAnyNotes = myNotes.some((x) => x.trim()) || ptNotes.some((x) => x.trim());
 
                       return (
                         <div key={d} className="rounded-2xl border border-rose-200 bg-white/70 p-4 space-y-3">
@@ -1225,7 +1287,8 @@ export default function TodayPage() {
                             </div>
 
                             <div className="text-sm text-zinc-600">
-                              用功 {dTotal.toFixed(1)}h / 目標 {totalTarget.toFixed(1)}h（{Math.round(ratio * 100)}%）
+                              我 {dTotal.toFixed(1)}h ／ 對方 {ptTotal.toFixed(1)}h ／ 合計 {(dTotal + ptTotal).toFixed(1)}h ／ 目標 {totalTarget.toFixed(1)}h（
+                              {Math.round(ratio * 100)}%）
                             </div>
                           </div>
 
@@ -1287,7 +1350,7 @@ export default function TodayPage() {
                           )}
 
                           {/* ✅ 公開：心得日記（兩人互看） */}
-                          {(myDiary || ptDiary) ? (
+                          {myDiary || ptDiary ? (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-2">
                               <div className="font-medium text-zinc-900">📝 心得日記（兩人互看）</div>
                               {myDiary ? (
@@ -1312,8 +1375,6 @@ export default function TodayPage() {
               </section>
             </div>
           )}
-
-          
         </div>
       </div>
 
@@ -1410,6 +1471,18 @@ async function fetchMyProgress(userId: string) {
     .limit(30);
 
   return { data, error };
+}
+
+/** ✅ 讀同 couple 近 30 天進度：study_progress（兩人） */
+async function fetchCoupleProgress(coupleId: string, fromDateISO: string) {
+  const { data, error } = await supabase
+    .from("study_progress")
+    .select("user_id, date, done, total_done, unlocked")
+    .eq("couple_id", coupleId)
+    .gte("date", fromDateISO)
+    .order("date", { ascending: false });
+
+  return { data: (data ?? []) as any[], error };
 }
 
 /** ✅ 存我的內容：day_content（照片/一句話，受原本解鎖規則影響） */
@@ -1520,11 +1593,7 @@ async function getMyProfile() {
   if (userErr) return { profile: null, error: userErr };
   if (!user) return { profile: null, error: new Error("No user session") };
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("couple_id, role")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("couple_id, role").eq("user_id", user.id).maybeSingle();
 
   if (error) return { profile: null, error };
   if (!data) return { profile: null, error: new Error("Profile not found") };
