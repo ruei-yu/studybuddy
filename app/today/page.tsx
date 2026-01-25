@@ -941,7 +941,7 @@ export default function TodayPage() {
                         <div className="rounded-2xl border border-rose-200 bg-white/80 p-3 space-y-2">
                           <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-medium text-zinc-900">📚 今天讀什麼</div>
-                            <div className="text-[11px] text-zinc-500">（兩個人都看得到）</div>
+                            <div className="text-[11px] text-zinc-500">(不要嗯嗯喔喔)</div>
                           </div>
 
                           <textarea
@@ -986,13 +986,13 @@ export default function TodayPage() {
                 <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-semibold text-zinc-900">✍️ 我寫給對方的今日一句話</div>
-                    <div className="text-[11px] text-zinc-500">（對方解鎖後才看得到）</div>
+                    <div className="text-[11px] text-zinc-500">（成為最強後盾！）</div>
                   </div>
 
                   <textarea
                     className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
                     rows={3}
-                    placeholder="例如：今天你很棒，我看到你的努力了。慢慢來，我一直在 💛"
+                    placeholder="一切都是最好的安排💛"
                     value={myMessageDraft}
                     onChange={(e) => {
                       dirtyRef.current.message = true;
@@ -1160,9 +1160,8 @@ export default function TodayPage() {
                   <div>
                     <h2 className="text-lg font-semibold">🗓️ 回顧牆</h2>
                     <p className="text-sm text-zinc-600">
-                      ✅ 這裡所有資料都來自 Supabase（所以跨手機不會跳）。<br />
-                      ✅ 「讀什麼」+「心得」永遠互看；照片/鼓勵訊息依解鎖規則顯示。<br />
-                      ✅ 若你開了 Realtime，兩邊會自動更新。
+                      💌 感謝過去的自己，造就今天的我們。
+                      
                     </p>
                   </div>
 
