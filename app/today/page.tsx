@@ -56,9 +56,12 @@ type DayRecord = {
   partnerDone: number[];
   partnerTotalDone: number;
 
-  // content (locked content: message/photos)
-  partnerMessage?: string;
-  dailyPhotoPaths?: string[]; // 可見的那一側（依 RLS/解鎖）
+  // locked content (message/photos) — 分成「我方/對方」兩份，回顧才不會漏
+  myPartnerMessage: string;
+  partnerMessage: string;
+  myDailyPhotoPaths: string[];
+  partnerDailyPhotoPaths: string[];
+
   // open content (always visible)
   myStudyNotes: string[];
   partnerStudyNotes: string[];
@@ -426,11 +429,13 @@ export default function TodayPage() {
       else byDateOpen[d].other = r;
     }
 
-    // build map: day_content (locked) by date -> other content we can see (RLS already filtered)
-    const byDateContentOther: Record<string, ContentRow | null> = {};
+    // ✅ build map: day_content (locked) by date -> mine/other
+    const byDateContent: Record<string, { mine?: ContentRow; other?: ContentRow }> = {};
     for (const r of contentRangeRows) {
-      // 我們只放 “對方那筆”（或當前 select 能看到的非自己筆）
-      if (r.author_id !== myUserId) byDateContentOther[r.date] = r;
+      const d = r.date;
+      if (!byDateContent[d]) byDateContent[d] = {};
+      if (r.author_id === myUserId) byDateContent[d].mine = r;
+      else byDateContent[d].other = r;
     }
 
     // build history 30 days
@@ -451,7 +456,9 @@ export default function TodayPage() {
       const myTotal =
         typeof mine?.total_done === "number" ? mine.total_done : myDone.reduce((s, x) => s + (Number(x) || 0), 0);
       const partnerTotal =
-        typeof other?.total_done === "number" ? other.total_done : partnerDone.reduce((s, x) => s + (Number(x) || 0), 0);
+        typeof other?.total_done === "number"
+          ? other.total_done
+          : partnerDone.reduce((s, x) => s + (Number(x) || 0), 0);
 
       const myUnlocked =
         typeof mine?.unlocked === "boolean"
@@ -463,7 +470,8 @@ export default function TodayPage() {
       const openMine = byDateOpen[d]?.mine ?? null;
       const openOther = byDateOpen[d]?.other ?? null;
 
-      const otherContent = byDateContentOther[d] ?? null;
+      const mineContent = byDateContent[d]?.mine ?? null;
+      const otherContent = byDateContent[d]?.other ?? null;
 
       nextHistory[d] = {
         date: d,
@@ -472,8 +480,15 @@ export default function TodayPage() {
         myUnlocked,
         partnerDone,
         partnerTotalDone: partnerTotal,
+
+        // ✅ 我寫給對方的（supporter 回顧要看這個）
+        myPartnerMessage: mineContent?.partner_message ?? "",
+        myDailyPhotoPaths: Array.isArray(mineContent?.daily_photo_paths) ? mineContent!.daily_photo_paths! : [],
+
+        // ✅ 對方寫給我的（writer 解鎖後會看到這個）
         partnerMessage: otherContent?.partner_message ?? "",
-        dailyPhotoPaths: Array.isArray(otherContent?.daily_photo_paths) ? otherContent!.daily_photo_paths! : [],
+        partnerDailyPhotoPaths: Array.isArray(otherContent?.daily_photo_paths) ? otherContent!.daily_photo_paths! : [],
+
         myStudyNotes: normalizeStudyNotes(openMine?.study_notes),
         partnerStudyNotes: normalizeStudyNotes(openOther?.study_notes),
         myDiary: (openMine?.unlock_diary ?? "") || "",
@@ -487,26 +502,24 @@ export default function TodayPage() {
     const todayMine = byDateProg[dateKey]?.mine;
     if (!hydratedTodayRef.current) {
       hydratedTodayRef.current = true;
-
       if (todayMine?.done && Array.isArray(todayMine.done)) setDone(todayMine.done as number[]);
     } else {
       // 之後進來不要強行覆蓋 done（你可能正在點 +0.5）
-      // 但如果你想要「跨裝置同步我自己」也能立即反映，可以打開下面這行：
       // if (todayMine?.done && Array.isArray(todayMine.done)) setDone(todayMine.done as number[]);
     }
 
     // today locked content
-    const mineContent = todayContentRows.find((r) => r.author_id === myUserId) ?? null;
-    const otherContent = todayContentRows.find((r) => r.author_id !== myUserId) ?? null;
+    const mineContentToday = todayContentRows.find((r) => r.author_id === myUserId) ?? null;
+    const otherContentToday = todayContentRows.find((r) => r.author_id !== myUserId) ?? null;
 
     // 我的 locked content：可編輯，但不要覆蓋你正在打的字
-    if (!dirtyRef.current.message) setMyMessageDraft(mineContent?.partner_message ?? "");
-    setMyCouplePhotoPath(mineContent?.couple_photo_path ?? null);
-    setMyDailyPhotoPaths(Array.isArray(mineContent?.daily_photo_paths) ? mineContent!.daily_photo_paths! : []);
+    if (!dirtyRef.current.message) setMyMessageDraft(mineContentToday?.partner_message ?? "");
+    setMyCouplePhotoPath(mineContentToday?.couple_photo_path ?? null);
+    setMyDailyPhotoPaths(Array.isArray(mineContentToday?.daily_photo_paths) ? mineContentToday!.daily_photo_paths! : []);
 
     // 對方 locked content：永遠以 DB 為準
-    setPartnerMessage(otherContent?.partner_message ?? "");
-    setPartnerDailyPhotoPaths(Array.isArray(otherContent?.daily_photo_paths) ? otherContent!.daily_photo_paths! : []);
+    setPartnerMessage(otherContentToday?.partner_message ?? "");
+    setPartnerDailyPhotoPaths(Array.isArray(otherContentToday?.daily_photo_paths) ? otherContentToday!.daily_photo_paths! : []);
 
     // today open content
     const todayOpenMine = byDateOpen[dateKey]?.mine ?? null;
@@ -536,24 +549,10 @@ export default function TodayPage() {
 
     const channel = supabase
       .channel(`sb_${coupleId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "study_progress", filter: `couple_id=eq.${coupleId}` },
-        () => reloadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "day_open_content", filter: `couple_id=eq.${coupleId}` },
-        () => reloadAll()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "day_content", filter: `couple_id=eq.${coupleId}` },
-        () => reloadAll()
-      )
-      .subscribe((status) => {
-        // console.log("[realtime]", status);
-      });
+      .on("postgres_changes", { event: "*", schema: "public", table: "study_progress", filter: `couple_id=eq.${coupleId}` }, () => reloadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "day_open_content", filter: `couple_id=eq.${coupleId}` }, () => reloadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "day_content", filter: `couple_id=eq.${coupleId}` }, () => reloadAll())
+      .subscribe(() => {});
 
     return () => {
       supabase.removeChannel(channel);
@@ -592,7 +591,6 @@ export default function TodayPage() {
   // unlock modal (only local UI; data is DB so won't "jump")
   useEffect(() => {
     if (effectiveUnlocked) {
-      // 只要達標就可以彈（如果你不想跨裝置一直彈，我可以再幫你把「已彈過」存到 DB）
       setShowUnlockModal(true);
       setConfettiOn(true);
       window.setTimeout(() => setConfettiOn(false), 1200);
@@ -1038,7 +1036,10 @@ export default function TodayPage() {
                         還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span> 小時就解鎖囉～我在這裡等你 ✨
                       </div>
 
-                      <button className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]" onClick={() => setTab("checkin")}>
+                      <button
+                        className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
+                        onClick={() => setTab("checkin")}
+                      >
                         回去打卡 📝
                       </button>
                     </div>
@@ -1195,7 +1196,14 @@ export default function TodayPage() {
                       const ratioMine = totalTarget === 0 ? 0 : r.myTotalDone / totalTarget;
                       const ratioPartner = totalTarget === 0 ? 0 : r.partnerTotalDone / totalTarget;
 
-                      const photos = (r.dailyPhotoPaths || []) as string[];
+                      // ✅ 回顧照片：supporter 永遠看雙方；writer 解鎖前只看自己；解鎖後看雙方
+                      const photos =
+                        myRole === "supporter"
+                          ? Array.from(new Set([...(r.myDailyPhotoPaths || []), ...(r.partnerDailyPhotoPaths || [])]))
+                          : isUnlock
+                          ? Array.from(new Set([...(r.myDailyPhotoPaths || []), ...(r.partnerDailyPhotoPaths || [])]))
+                          : (r.myDailyPhotoPaths || []);
+
                       const hasAnyNotes =
                         r.myStudyNotes.some((x) => x.trim()) || r.partnerStudyNotes.some((x) => x.trim());
 
@@ -1219,7 +1227,7 @@ export default function TodayPage() {
                             </div>
                           </div>
 
-                          {/* 照片（依 RLS/解鎖可見） */}
+                          {/* 照片（依角色/解鎖規則可見） */}
                           {photos.length === 0 ? (
                             <div className="text-sm text-zinc-500">這天沒有照片或你尚未解鎖可見內容。</div>
                           ) : (
@@ -1235,13 +1243,23 @@ export default function TodayPage() {
                             </div>
                           )}
 
-                          {/* 一句話（依解鎖顯示） */}
-                          {r.partnerMessage?.trim() ? (
+                          {/* ✅ 一句話（supporter 看「我寫給對方」；writer 依解鎖看「對方寫給我」） */}
+                          {myRole === "supporter" ? (
+                            r.myPartnerMessage.trim() ? (
+                              <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
+                                <span className="font-medium text-rose-700">我寫給對方的一句話：</span> {r.myPartnerMessage}
+                              </div>
+                            ) : null
+                          ) : (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
                               <span className="font-medium text-rose-700">一句話：</span>{" "}
-                              {isUnlock ? r.partnerMessage : "（未解鎖：達到 2/3 後才會看到對方內容 💛）"}
+                              {isUnlock
+                                ? r.partnerMessage?.trim()
+                                  ? r.partnerMessage
+                                  : "（這天對方沒有留一句話）"
+                                : "（未解鎖：達到 2/3 後才會看到對方內容 💛）"}
                             </div>
-                          ) : null}
+                          )}
 
                           {/* 公開：各科今天讀什麼 */}
                           {hasAnyNotes ? (
@@ -1328,7 +1346,10 @@ export default function TodayPage() {
                 🎁 立刻解鎖
               </button>
 
-              <button className="rounded-2xl border border-rose-200 bg-white py-3 font-medium hover:bg-rose-50 active:scale-[0.99]" onClick={() => setShowUnlockModal(false)}>
+              <button
+                className="rounded-2xl border border-rose-200 bg-white py-3 font-medium hover:bg-rose-50 active:scale-[0.99]"
+                onClick={() => setShowUnlockModal(false)}
+              >
                 晚點再看
               </button>
             </div>
