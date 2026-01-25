@@ -1087,7 +1087,7 @@ export default function TodayPage() {
                   {/* ✅ 心得日記：永遠互看 */}
                   <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold text-zinc-900">📝 今日心得日記（永遠可寫／永遠互看）</div>
+                      <div className="font-semibold text-zinc-900">📝 今日心得日記。想訴苦的話隨時都可以喔！</div>
                       <div className="text-[11px] text-zinc-500">（不受解鎖影響）</div>
                     </div>
 
@@ -1129,7 +1129,7 @@ export default function TodayPage() {
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold">今日照片分享（永久）</h2>
+                    <h2 className="text-lg font-semibold">今日照片分享</h2>
                     <p className="text-sm text-zinc-600">兩邊都能上傳；writer 未解鎖只會看到自己上傳的。</p>
                   </div>
 
@@ -1183,10 +1183,11 @@ export default function TodayPage() {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h2 className="text-lg font-semibold">🗓️ 回顧牆（跨裝置）</h2>
+                      <h2 className="text-lg font-semibold">🗓️ 回顧牆</h2>
                       <p className="text-sm text-zinc-600">
+                        💌 感謝過去的自己，造就今天的我們。<br />
                         ✅ 顯示你與對方的「用功時數」；照片/鼓勵訊息仍依解鎖規則遮蔽。<br />
-                        ✅ 另外：各科「讀什麼」+「心得日記」屬於公開內容，兩人永遠互看。
+                        ✅ 各科「讀什麼」+「心得日記」屬於公開內容，兩人永遠互看。
                       </p>
                     </div>
 
@@ -1306,10 +1307,10 @@ export default function TodayPage() {
                             </div>
                           ) : null}
 
-                          {/* ✅ 公開：各科今天讀什麼（兩人互看） */}
+                          {/* ✅ 公開：各科今天讀什麼 */}
                           {hasAnyNotes ? (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-2">
-                              <div className="font-medium text-zinc-900">📚 各科今天讀什麼（兩人互看）</div>
+                              <div className="font-medium text-zinc-900">📚 各科今天讀什麼</div>
 
                               <div className="space-y-2">
                                 {subjects.map((s, idx) => {
