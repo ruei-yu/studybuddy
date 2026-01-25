@@ -313,6 +313,7 @@ export default function TodayPage() {
   const [partnerDiary, setPartnerDiary] = useState<string>("");
 
   const [couplePhotoVersion, setCouplePhotoVersion] = useState<number>(0);
+  const [coupleImgFailed, setCoupleImgFailed] = useState(false);
 
   const [uploadingCouple, setUploadingCouple] = useState(false);
   const [uploadingDaily, setUploadingDaily] = useState(false);
@@ -503,7 +504,8 @@ export default function TodayPage() {
 
   useEffect(() => {
     setCouplePhotoVersion(Date.now());
-  }, [myCouplePhotoPath, partnerCouplePhotoPath]);
+    setCoupleImgFailed(false);
+  }, [myCouplePhotoPath, partnerCouplePhotoPath, coupleId]);
 
   // 3) 本機快取：只存「我自己的進度」+ unlockModalShown
   useEffect(() => {
@@ -585,7 +587,7 @@ export default function TodayPage() {
 
     setUploadingCouple(true);
     try {
-      const path = `${coupleId}/couple_${myRole}.jpg`;
+      const path = `${coupleId}/couple_shared.jpg`;
 
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
         upsert: true,
@@ -595,6 +597,7 @@ export default function TodayPage() {
 
       setMyCouplePhotoPath(path);
       setCouplePhotoVersion(Date.now());
+      setCoupleImgFailed(false);
 
       await saveMyContent({
         coupleId,
@@ -682,8 +685,9 @@ export default function TodayPage() {
   const canSeePartner = myRole === "supporter" || effectiveUnlocked;
 
   // ✅ 合照：兩人「永遠可看」，不受解鎖影響
-  const displayCouplePathAlways = partnerCouplePhotoPath || myCouplePhotoPath;
-  const coupleImgSrc = displayCouplePathAlways ? `${publicUrl(displayCouplePathAlways)}?t=${couplePhotoVersion || 0}` : null;
+  const sharedCouplePath = coupleId ? `${coupleId}/couple_shared.jpg` : null;
+  const coupleImgSrc = sharedCouplePath && !coupleImgFailed ? `${publicUrl(sharedCouplePath)}?t=${couplePhotoVersion || 0}` : null;
+
 
   // ✅ 今日照片顯示策略（仍受解鎖影響）
   const displayDailyPhotos =
@@ -845,7 +849,7 @@ export default function TodayPage() {
                   <div className="rounded-3xl border border-rose-200 bg-white/80 p-4 shadow-sm flex flex-col">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="font-semibold text-zinc-900 flex items-center gap-2">
-                        <span>🫶</span>
+                        <span>👩‍❤️‍👨</span>
                         <span>合照</span>
                       </div>
 
@@ -871,17 +875,18 @@ export default function TodayPage() {
                           src={coupleImgSrc}
                           alt="couple"
                           className="w-full h-auto rounded-xl"
+                          onError={() => setCoupleImgFailed(true)}
                         />
                       ) : (
                         <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 text-rose-700/70">
                           <div className="text-3xl">📷</div>
-                          <div className="text-sm">在這裡放你們的合照（永久保存）</div>
-                          <div className="text-xs text-zinc-500">（不受解鎖影響，兩人都看得到）</div>
+                          <div className="text-sm">在這裡放你們的合照</div>
+                          <div className="text-xs text-zinc-500">（我們都是彼此前進的動力）</div>
                         </div>
                       )}
                     </div>
 
-                    <div className="mt-2 text-xs text-zinc-500 text-center">（不受解鎖影響，兩人都看得到）</div>
+                    <div className="mt-2 text-xs text-zinc-500 text-center">（今天也一起加油吧💖）</div>
                   </div>
                 </div>
               </section>
