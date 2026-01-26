@@ -753,6 +753,18 @@ export default function TodayPage() {
     }
     return { my, pt, both: my + pt };
   }, [history]);
+  const partnerSubjectTotals = useMemo(() => {
+    const totals = subjects.map(() => 0);
+    for (const d of Object.keys(history)) {
+      const r = history[d];
+      if (!r) continue;
+      for (let i = 0; i < subjects.length; i++) {
+        totals[i] += Number(r.partnerDone?.[i] ?? 0);
+      }
+    }
+    return totals;
+  }, [history]);
+
 
   // =========================
   // UI
@@ -1223,6 +1235,19 @@ export default function TodayPage() {
                         <div className="text-zinc-500 text-xs">合計</div>
                         <div className="text-lg font-semibold text-rose-700">{historyTotals.both.toFixed(1)}h</div>
                       </div>
+                      <div className="mt-4 rounded-2xl border border-rose-200 bg-white/80 p-3">
+                        <div className="text-sm font-medium text-zinc-900">🧾 Wilson 各科累積總時數</div>
+                        <div className="mt-2 max-h-40 overflow-y-auto space-y-2 pr-1">
+                          {subjects.map((s, i) => (
+                            <div key={s.name} className="flex items-center justify-between rounded-xl border border-rose-200 bg-white/90 px-3 py-2 text-sm">
+                              <div className="text-zinc-800">{s.name}</div>
+                              <div className="font-semibold text-rose-700">{partnerSubjectTotals[i].toFixed(1)}h</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 text-[11px] text-zinc-500">（可上下滑動查看全部科目）</div>
+                      </div>
+
                     </div>
                   </div>
                 </div>
@@ -1311,24 +1336,31 @@ export default function TodayPage() {
                                 {subjects.map((s, idx) => {
                                   const a = (r.myStudyNotes[idx] ?? "").trim();
                                   const b = (r.partnerStudyNotes[idx] ?? "").trim();
+
+                                  const myH = Number(r.myDone?.[idx] ?? 0);
+                                  const ptH = Number(r.partnerDone?.[idx] ?? 0);
+
                                   if (!a && !b) return null;
 
                                   return (
                                     <div key={s.name} className="rounded-2xl border border-rose-200 bg-white/80 p-3 text-sm">
                                       <div className="font-medium text-rose-700 mb-1">{s.name}</div>
+
                                       {a ? (
                                         <div className="text-zinc-700">
-                                          <span className="font-medium">我：</span> {a}
+                                          <span className="font-medium">我（{myH.toFixed(1)}h）：</span> {a}
                                         </div>
                                       ) : null}
+
                                       {b ? (
                                         <div className="text-zinc-700 mt-1">
-                                          <span className="font-medium">對方：</span> {b}
+                                          <span className="font-medium">對方（{ptH.toFixed(1)}h）：</span> {b}
                                         </div>
                                       ) : null}
                                     </div>
                                   );
                                 })}
+
                               </div>
                             </div>
                           ) : (
