@@ -1186,7 +1186,7 @@ export default function TodayPage() {
           )}
 
           {/* Tab: 回顧 */}
-          {tab === "history" && (
+          {tab === "history" && 
             <div className="space-y-6">
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
                 <div className="flex flex-col gap-3">
@@ -1229,20 +1229,27 @@ export default function TodayPage() {
                         <div className="text-zinc-500 text-xs">我</div>
                         <div className="text-lg font-semibold text-zinc-900">{historyTotals.my.toFixed(1)}h</div>
                       </div>
+
                       <div className="rounded-2xl border border-rose-200 bg-white/80 p-3">
                         <div className="text-zinc-500 text-xs">對方</div>
                         <div className="text-lg font-semibold text-zinc-900">{historyTotals.pt.toFixed(1)}h</div>
                       </div>
+
                       <div className="rounded-2xl border border-rose-200 bg-white/80 p-3">
                         <div className="text-zinc-500 text-xs">合計</div>
                         <div className="text-lg font-semibold text-rose-700">{historyTotals.both.toFixed(1)}h</div>
                       </div>
-                      <div className="mt-4 rounded-2xl border border-rose-200 bg-white/80 p-4">
-                        <div className="text-sm font-medium text-zinc-900">🧾 Wilson 各科累積總時數</div>
 
-                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-center">
+                      {/* ✅ Wilson 框：吃滿三欄 → 寬度會跟上面三個框總長度一致 */}
+                      <div className="col-span-3 rounded-2xl border border-rose-200 bg-white/80 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-medium text-zinc-900 flex items-center gap-2">
+                            <span>🧾</span>
+                            <span>Wilson 各科累積總時數</span>
+                          </div>
+
                           <select
-                            className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                            className="w-[150px] sm:w-[180px] rounded-2xl border border-rose-200 bg-white/90 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-200"
                             value={partnerSubjectIdx}
                             onChange={(e) => setPartnerSubjectIdx(Number(e.target.value))}
                           >
@@ -1252,21 +1259,17 @@ export default function TodayPage() {
                               </option>
                             ))}
                           </select>
+                        </div>
 
-                          <div className="rounded-2xl border border-rose-200 bg-white/90 px-4 py-3 text-sm text-zinc-700 flex items-center justify-between sm:justify-center gap-2">
-                            <span className="sm:hidden text-zinc-500">累積</span>
-                            <span className="font-semibold text-rose-700">
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <div className="text-[11px] text-zinc-500">（選科目即可看累積時數）</div>
+                          <div className="rounded-2xl border border-rose-200 bg-white/90 px-5 py-3">
+                            <span className="text-base font-semibold text-rose-700">
                               {partnerSubjectTotals[partnerSubjectIdx].toFixed(1)}h
                             </span>
                           </div>
                         </div>
-
-                        <div className="mt-2 text-[11px] text-zinc-500">
-                          （下拉選科目即可查看該科累積時數）
-                        </div>
                       </div>
-
-
                     </div>
                   </div>
                 </div>
@@ -1411,7 +1414,7 @@ export default function TodayPage() {
                 )}
               </section>
             </div>
-          )}
+          }
         </div>
       </div>
 
