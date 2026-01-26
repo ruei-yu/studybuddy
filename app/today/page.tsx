@@ -318,6 +318,8 @@ export default function TodayPage() {
   const [partnerMessage, setPartnerMessage] = useState<string>("");
   const [partnerDailyPhotoPaths, setPartnerDailyPhotoPaths] = useState<string[]>([]);
 
+  const [partnerSubjectIdx, setPartnerSubjectIdx] = useState<number>(0);
+
   // open content (always visible)
   const [myStudyNotes, setMyStudyNotes] = useState<string[]>(subjects.map(() => ""));
   const [partnerStudyNotes, setPartnerStudyNotes] = useState<string[]>(subjects.map(() => ""));
@@ -1235,18 +1237,35 @@ export default function TodayPage() {
                         <div className="text-zinc-500 text-xs">合計</div>
                         <div className="text-lg font-semibold text-rose-700">{historyTotals.both.toFixed(1)}h</div>
                       </div>
-                      <div className="mt-4 rounded-2xl border border-rose-200 bg-white/80 p-3">
+                      <div className="mt-4 rounded-2xl border border-rose-200 bg-white/80 p-4">
                         <div className="text-sm font-medium text-zinc-900">🧾 Wilson 各科累積總時數</div>
-                        <div className="mt-2 max-h-40 overflow-y-auto space-y-2 pr-1">
-                          {subjects.map((s, i) => (
-                            <div key={s.name} className="flex items-center justify-between rounded-xl border border-rose-200 bg-white/90 px-3 py-2 text-sm">
-                              <div className="text-zinc-800">{s.name}</div>
-                              <div className="font-semibold text-rose-700">{partnerSubjectTotals[i].toFixed(1)}h</div>
-                            </div>
-                          ))}
+
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-center">
+                          <select
+                            className="w-full rounded-2xl border border-rose-200 bg-white/90 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-200"
+                            value={partnerSubjectIdx}
+                            onChange={(e) => setPartnerSubjectIdx(Number(e.target.value))}
+                          >
+                            {subjects.map((s, i) => (
+                              <option key={s.name} value={i}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div className="rounded-2xl border border-rose-200 bg-white/90 px-4 py-3 text-sm text-zinc-700 flex items-center justify-between sm:justify-center gap-2">
+                            <span className="sm:hidden text-zinc-500">累積</span>
+                            <span className="font-semibold text-rose-700">
+                              {partnerSubjectTotals[partnerSubjectIdx].toFixed(1)}h
+                            </span>
+                          </div>
                         </div>
-                        <div className="mt-2 text-[11px] text-zinc-500">（可上下滑動查看全部科目）</div>
+
+                        <div className="mt-2 text-[11px] text-zinc-500">
+                          （下拉選科目即可查看該科累積時數）
+                        </div>
                       </div>
+
 
                     </div>
                   </div>
