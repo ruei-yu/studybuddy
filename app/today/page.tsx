@@ -65,6 +65,12 @@ type DayRecord = {
   partnerDone: number[];
   partnerTotalDone: number;
 
+  // ✅ absolute (always stable)
+  writerDone: number[];
+  writerTotalDone: number;
+  supporterDone: number[];
+  supporterTotalDone: number;
+
   // locked content (message/photos) — 分成「我方/對方」兩份，回顧才不會漏
   myPartnerMessage: string;
   partnerMessage: string;
@@ -481,6 +487,22 @@ export default function TodayPage() {
       const myDone = Array.isArray(mine?.done) ? (mine!.done as number[]) : subjects.map(() => 0);
       const partnerDone = Array.isArray(other?.done) ? (other!.done as number[]) : subjects.map(() => 0);
 
+      // ✅ 用 DB 的 author_role 判斷誰是 writer（不會因登入者而顛倒）
+      const writerRow = mine?.author_role === "writer" ? mine : other?.author_role === "writer" ? other : undefined;
+      const supporterRow = mine?.author_role === "supporter" ? mine : other?.author_role === "supporter" ? other : undefined;
+
+      const writerDone = Array.isArray(writerRow?.done) ? (writerRow!.done as number[]) : subjects.map(() => 0);
+      const supporterDone = Array.isArray(supporterRow?.done) ? (supporterRow!.done as number[]) : subjects.map(() => 0);
+
+      const writerTotal =
+        typeof writerRow?.total_done === "number"
+          ? writerRow.total_done
+          : writerDone.reduce((s, x) => s + (Number(x) || 0), 0);
+
+      const supporterTotal =
+        typeof supporterRow?.total_done === "number"
+          ? supporterRow.total_done
+          : supporterDone.reduce((s, x) => s + (Number(x) || 0), 0);
       const myTotal =
         typeof mine?.total_done === "number" ? mine.total_done : myDone.reduce((s, x) => s + (Number(x) || 0), 0);
       const partnerTotal =
@@ -508,6 +530,10 @@ export default function TodayPage() {
         myUnlocked,
         partnerDone,
         partnerTotalDone: partnerTotal,
+        writerDone,
+        writerTotalDone: writerTotal,
+        supporterDone,
+        supporterTotalDone: supporterTotal,
 
         myPartnerMessage: mineContent?.partner_message ?? "",
         myDailyPhotoPaths: Array.isArray(mineContent?.daily_photo_paths) ? mineContent!.daily_photo_paths! : [],
@@ -761,7 +787,7 @@ export default function TodayPage() {
       const r = history[d];
       if (!r) continue;
       for (let i = 0; i < subjects.length; i++) {
-        totals[i] += Number(r.partnerDone?.[i] ?? 0);
+        totals[i] += Number(r.writerDone?.[i] ?? 0);
       }
     }
     return totals;
