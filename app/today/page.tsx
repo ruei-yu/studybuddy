@@ -502,10 +502,6 @@ export default function TodayPage() {
       const myDone = Array.isArray(mine?.done) ? (mine!.done as number[]) : subjects.map(() => 0);
       const partnerDone = Array.isArray(other?.done) ? (other!.done as number[]) : subjects.map(() => 0);
 
-      // ✅ 用 DB 的 author_role 判斷誰是 writer（不會因登入者而顛倒）
-      const writerRow = mine?.author_role === "writer" ? mine : other?.author_role === "writer" ? other : undefined;
-      const supporterRow = mine?.author_role === "supporter" ? mine : other?.author_role === "supporter" ? other : undefined;
-
       const writerDone = Array.isArray(writerRow?.done) ? (writerRow!.done as number[]) : subjects.map(() => 0);
       const supporterDone = Array.isArray(supporterRow?.done) ? (supporterRow!.done as number[]) : subjects.map(() => 0);
 
