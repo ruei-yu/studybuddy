@@ -383,6 +383,45 @@ function MiniLineChart({
   );
 }
 
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+  badge,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: string;
+  label: string;
+  badge?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 rounded-2xl px-3 py-3 text-sm font-medium border transition ${
+        active
+          ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+          : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
+      }`}
+    >
+      <div className="flex items-center justify-center gap-2">
+        <span>{icon}</span>
+        <span>{label}</span>
+        {badge ? (
+          <span
+            className={`ml-1 text-[11px] px-2 py-0.5 rounded-full border ${
+              active ? "border-white/50 bg-white/20 text-white" : "border-rose-200 bg-rose-50 text-rose-700"
+            }`}
+          >
+            {badge}
+          </span>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
 function BottomTabBar({
   tab,
   setTab,
@@ -433,6 +472,7 @@ function BottomTabBar({
     </div>
   );
 }
+
 
 export default function TodayPage() {
   const router = useRouter();
