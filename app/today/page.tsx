@@ -310,7 +310,8 @@ export default function TodayPage() {
   const [coupleId, setCoupleId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<Role | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
-
+  const [writerId, setWriterId] = useState<string | null>(null);
+  
   // progress (my side editable)
   const [done, setDone] = useState<number[]>(subjects.map(() => 0));
   const totalTarget = useMemo(() => subjects.reduce((s, x) => s + x.target, 0), []);
@@ -377,6 +378,20 @@ export default function TodayPage() {
       }
       setCoupleId(profile?.couple_id ?? null);
       setMyRole((profile?.role as Role) ?? null);
+
+      const cid = profile?.couple_id ?? null;
+      setCoupleId(cid);
+      setMyRole((profile?.role as Role) ?? null);
+
+      // ✅ 取得 Wilson(writer) 的 user_id
+      if (cid) {
+        try {
+          const wid = await getWriterIdByCoupleId(cid);
+          setWriterId(wid);
+        } catch (e) {
+          console.error("[getWriterIdByCoupleId] error:", e);
+        }
+      }
     })();
   }, []);
 
@@ -417,7 +432,7 @@ export default function TodayPage() {
 
   // fetch + build 30 days history + hydrate today from DB
     const reloadAll = async () => {
-    if (!coupleId || !myUserId || !myRole) return;
+    if (!coupleId || !myUserId || !myRole || !writerId) return;
 
     // ✅ 依 range 決定 fromDate，但永遠不早於 2026-01-25
     const days = historyRange === "30" ? 29 : historyRange === "90" ? 89 : null;
@@ -588,7 +603,7 @@ export default function TodayPage() {
     if (!coupleId || !myUserId || !myRole) return;
     reloadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coupleId, myUserId, myRole, dateKey, historyRange]);
+  }, [coupleId, myUserId, myRole, writerId, dateKey, historyRange]);
 
   // Realtime subscriptions (cross devices instant sync)
   useEffect(() => {
@@ -605,7 +620,7 @@ export default function TodayPage() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coupleId, myUserId, historyRange]);
+  }, [coupleId, myUserId, historyRange, writerId]);
 
   // autosave progress (debounced)
   useEffect(() => {
@@ -1658,4 +1673,17 @@ async function getMyProfile() {
   if (!data) return { profile: null, error: new Error("Profile not found") };
 
   return { profile: data, error: null };
+}
+async function getWriterIdByCoupleId(coupleId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id, role")
+    .eq("couple_id", coupleId);
+
+  if (error) throw error;
+
+  const writer = (data ?? []).find((p: any) => p.role === "writer");
+  if (!writer?.user_id) throw new Error("Writer not found in profiles");
+
+  return writer.user_id as string;
 }
