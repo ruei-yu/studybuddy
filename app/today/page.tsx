@@ -496,11 +496,29 @@ export default function TodayPage() {
     const nextHistory: Record<string, DayRecord> = {};
 
     for (const d of dates) {
+      // mine/other progress rows
       const mine = byDateProg[d]?.mine;
       const other = byDateProg[d]?.other;
 
+      // 相對（原本 UI 仍可能用到：我 / 對方）
       const myDone = Array.isArray(mine?.done) ? (mine!.done as number[]) : subjects.map(() => 0);
       const partnerDone = Array.isArray(other?.done) ? (other!.done as number[]) : subjects.map(() => 0);
+
+      const myTotal =
+        typeof mine?.total_done === "number" ? mine.total_done : myDone.reduce((s, x) => s + (Number(x) || 0), 0);
+      const partnerTotal =
+        typeof other?.total_done === "number" ? other.total_done : partnerDone.reduce((s, x) => s + (Number(x) || 0), 0);
+
+      const myUnlocked =
+        typeof mine?.unlocked === "boolean"
+          ? mine.unlocked
+          : totalTarget === 0
+          ? false
+          : myTotal / totalTarget >= 2 / 3;
+
+      // ✅ 絕對（固定 Wilson = writer）
+      const writerRow = mine?.user_id === writerId ? mine : other?.user_id === writerId ? other : undefined;
+      const supporterRow = writerRow === mine ? other : mine;
 
       const writerDone = Array.isArray(writerRow?.done) ? (writerRow!.done as number[]) : subjects.map(() => 0);
       const supporterDone = Array.isArray(supporterRow?.done) ? (supporterRow!.done as number[]) : subjects.map(() => 0);
@@ -514,20 +532,6 @@ export default function TodayPage() {
         typeof supporterRow?.total_done === "number"
           ? supporterRow.total_done
           : supporterDone.reduce((s, x) => s + (Number(x) || 0), 0);
-      const myTotal =
-        typeof mine?.total_done === "number" ? mine.total_done : myDone.reduce((s, x) => s + (Number(x) || 0), 0);
-      const partnerTotal =
-        typeof other?.total_done === "number"
-          ? other.total_done
-          : partnerDone.reduce((s, x) => s + (Number(x) || 0), 0);
-
-      const myUnlocked =
-        typeof mine?.unlocked === "boolean"
-          ? mine.unlocked
-          : totalTarget === 0
-          ? false
-          : myTotal / totalTarget >= 2 / 3;
-
       const openMine = byDateOpen[d]?.mine ?? null;
       const openOther = byDateOpen[d]?.other ?? null;
 
