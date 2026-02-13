@@ -191,16 +191,16 @@ function ConfettiBurst({ active }: { active: boolean }) {
 /** ✅ NEW: Wilson 每日總時數折線圖（純 SVG，不用裝套件） */
 function MiniLineChart({
   data,
-  height = 140,
+  height = 220,
 }: {
   data: { date: string; hours: number }[];
   height?: number;
 }) {
-  const width = 600; // viewBox 用，實際顯示會用 w-full 自適應
-  const padL = 28;
-  const padR = 12;
-  const padT = 12;
-  const padB = 22;
+  const width = 760; // SVG viewBox 寬度（實際顯示 w-full 自適應）
+  const padL = 46;   // 左邊留空間給 y 軸數字
+  const padR = 18;
+  const padT = 18;
+  const padB = 34;
 
   if (!data || data.length === 0) {
     return (
@@ -210,12 +210,31 @@ function MiniLineChart({
     );
   }
 
+  // =====================
+  // 數值準備
+  // =====================
   const ys = data.map((d) => Number(d.hours) || 0);
 
-  const minYRaw = Math.min(...ys);
-  const maxYRaw = Math.max(...ys);
-  const minY = Math.max(0, Math.floor(minYRaw * 2) / 2); // 以 0.5 為刻度向下
-  const maxY = Math.max(minY + 0.5, Math.ceil(maxYRaw * 2) / 2); // 至少有高度
+  const rawMin = Math.min(...ys);
+  const rawMax = Math.max(...ys);
+
+  // 讓 y 軸至少從 0 開始（視覺比較直覺）
+  const baseMin = Math.min(0, rawMin);
+  const range = Math.max(0.1, rawMax - baseMin);
+
+  // =====================
+  // 自動決定刻度間距
+  // =====================
+  let step = 2;
+
+  if (range <= 6) step = 0.5;
+  else if (range <= 12) step = 1;
+  else if (range <= 25) step = 2;
+  else step = 5;
+
+  // 對齊到刻度
+  const minY = Math.floor(baseMin / step) * step;
+  const maxY = Math.ceil(rawMax / step) * step;
 
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
@@ -224,16 +243,28 @@ function MiniLineChart({
     if (data.length <= 1) return padL + plotW / 2;
     return padL + (i / (data.length - 1)) * plotW;
   };
+
   const yScale = (v: number) => {
     const t = (v - minY) / (maxY - minY || 1);
     return padT + (1 - t) * plotH;
   };
 
+  // 折線座標
   const points = data
-    .map((d, i) => `${xScale(i).toFixed(2)},${yScale(Number(d.hours) || 0).toFixed(2)}`)
+    .map((d, i) => {
+      const x = xScale(i);
+      const y = yScale(Number(d.hours) || 0);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
     .join(" ");
 
-  const gridYs = [0, 0.5, 1].map((t) => padT + t * plotH);
+  // =====================
+  // y 軸刻度陣列
+  // =====================
+  const ticks: number[] = [];
+  for (let v = minY; v <= maxY + 1e-9; v += step) {
+    ticks.push(Number(v.toFixed(10)));
+  }
 
   const first = data[0];
   const last = data[data.length - 1];
@@ -241,96 +272,114 @@ function MiniLineChart({
   return (
     <div className="rounded-2xl border border-rose-200 bg-white/70 p-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-zinc-900">📈 Wilson 每日總讀書時數</div>
+        <div className="text-sm font-medium text-zinc-900">
+          📈 Wilson 每日總讀書時數
+        </div>
         <div className="text-[11px] text-zinc-500">
           {first.date} → {last.date}
         </div>
       </div>
 
       <div className="mt-3">
-        <svg className="w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Wilson daily study hours line chart">
-          {/* grid */}
-          {gridYs.map((gy, idx) => (
-            <line key={idx} x1={padL} x2={width - padR} y1={gy} y2={gy} stroke="currentColor" opacity={0.08} />
-          ))}
+        <svg
+          className="w-full"
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label="Wilson daily study hours line chart"
+        >
+          {/* ===================== */}
+          {/* y 軸 grid + label */}
+          {/* ===================== */}
+          {ticks.map((v) => {
+            const y = yScale(v);
+            return (
+              <g key={v}>
+                <line
+                  x1={padL}
+                  x2={width - padR}
+                  y1={y}
+                  y2={y}
+                  stroke="currentColor"
+                  opacity={0.08}
+                />
+                <text
+                  x={padL - 10}
+                  y={y + 3}
+                  fontSize="11"
+                  fill="currentColor"
+                  opacity="0.55"
+                  textAnchor="end"
+                >
+                  {step < 1 ? v.toFixed(1) : v.toFixed(0)}
+                </text>
+              </g>
+            );
+          })}
 
-          {/* y labels */}
-          <text x={2} y={yScale(maxY) + 4} fontSize="10" fill="currentColor" opacity={0.55}>
-            {maxY.toFixed(1)}
-          </text>
-          <text x={2} y={yScale(minY) + 4} fontSize="10" fill="currentColor" opacity={0.55}>
-            {minY.toFixed(1)}
-          </text>
-
-          {/* line */}
+          {/* ===================== */}
+          {/* 折線 */}
+          {/* ===================== */}
           <polyline
             points={points}
             fill="none"
             stroke="currentColor"
-            strokeWidth="3"
-            opacity={0.85}
+            strokeWidth="3.5"
+            opacity="0.9"
             strokeLinejoin="round"
             strokeLinecap="round"
           />
 
-          {/* dots + tooltip */}
-          {data.map((d, i) => (
-            <circle key={d.date} cx={xScale(i)} cy={yScale(Number(d.hours) || 0)} r={4} fill="currentColor" opacity={0.85}>
-              <title>
-                {d.date}：{(Number(d.hours) || 0).toFixed(1)}h
-              </title>
-            </circle>
-          ))}
+          {/* ===================== */}
+          {/* 圓點 + tooltip */}
+          {/* ===================== */}
+          {data.map((d, i) => {
+            const value = Number(d.hours) || 0;
+            return (
+              <circle
+                key={d.date}
+                cx={xScale(i)}
+                cy={yScale(value)}
+                r={4.5}
+                fill="currentColor"
+                opacity="0.9"
+              >
+                <title>
+                  {d.date}：{value.toFixed(1)}h
+                </title>
+              </circle>
+            );
+          })}
 
-          {/* x labels: first / last */}
-          <text x={padL} y={height - 6} fontSize="10" fill="currentColor" opacity={0.55}>
+          {/* ===================== */}
+          {/* x 軸顯示首尾日期 */}
+          {/* ===================== */}
+          <text
+            x={padL}
+            y={height - 10}
+            fontSize="11"
+            fill="currentColor"
+            opacity="0.55"
+          >
             {first.date.slice(5)}
           </text>
-          <text x={width - padR} y={height - 6} fontSize="10" fill="currentColor" opacity={0.55} textAnchor="end">
+
+          <text
+            x={width - padR}
+            y={height - 10}
+            fontSize="11"
+            fill="currentColor"
+            opacity="0.55"
+            textAnchor="end"
+          >
             {last.date.slice(5)}
           </text>
         </svg>
 
-        <div className="mt-2 text-xs text-zinc-500">小提示：滑到點上會看到 tooltip（日期 / 時數）。</div>
+        <div className="mt-2 text-xs text-zinc-500">
+          小提示：滑到點上會看到 tooltip（日期 / 時數）。
+        </div>
       </div>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: string;
-  label: string;
-  badge?: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 rounded-2xl px-3 py-3 text-sm font-medium border transition ${
-        active ? "bg-rose-600 text-white border-rose-600 shadow-sm" : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
-      }`}
-    >
-      <div className="flex items-center justify-center gap-2">
-        <span>{icon}</span>
-        <span>{label}</span>
-        {badge ? (
-          <span
-            className={`ml-1 text-[11px] px-2 py-0.5 rounded-full border ${
-              active ? "border-white/50 bg-white/20 text-white" : "border-rose-200 bg-rose-50 text-rose-700"
-            }`}
-          >
-            {badge}
-          </span>
-        ) : null}
-      </div>
-    </button>
   );
 }
 
@@ -437,9 +486,12 @@ export default function TodayPage() {
 
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
-
+    // ✅ Wilson 折線圖放大 modal
+  const [showWilsonChartModal, setShowWilsonChartModal] = useState(false);
+  const [wilsonChartPoint, setWilsonChartPoint] = useState<string>(""); // 可不需要，但我留著以後你想顯示某天用
   const [couplePhotoVersion, setCouplePhotoVersion] = useState<number>(0);
   const [coupleImgFailed, setCoupleImgFailed] = useState(false);
+  
 
   // hydration guards (避免 refetch 時把你正在打的文字「跳掉」)
   const hydratedTodayRef = useRef(false);
@@ -1583,6 +1635,41 @@ export default function TodayPage() {
             </div>
 
             <div className="mt-4 text-center text-xs text-zinc-500">（點背景也可以關閉）</div>
+          </div>
+        </div>
+      )}
+            {/* ✅ Wilson 折線圖放大 Modal */}
+      {showWilsonChartModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
+          {/* 背景遮罩：點一下關閉 */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowWilsonChartModal(false)}
+          />
+
+          {/* 內容卡片 */}
+          <div className="relative w-full max-w-3xl rounded-3xl border border-rose-200 bg-white p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="font-semibold text-zinc-900 flex items-center gap-2">
+                <span>📈</span>
+                <span>Wilson 每日總讀書時數（放大）</span>
+              </div>
+
+              <button
+                className="rounded-full border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 active:scale-[0.99]"
+                onClick={() => setShowWilsonChartModal(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ✅ 放大圖：高度更大 */}
+            <MiniLineChart data={wilsonDailySeries} height={320} />
+
+            <div className="mt-3 text-xs text-zinc-500">
+              小提示：點上/滑到點上會看到 tooltip（日期 / 時數）。點背景或右上角可關閉。
+            </div>
           </div>
         </div>
       )}
