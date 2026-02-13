@@ -26,7 +26,6 @@ function maxISODate(a: string, b: string) {
   return a > b ? a : b; // ISO yyyy-mm-dd 字串可直接比較
 }
 
-
 type ContentRow = {
   couple_id: string;
   date: string;
@@ -189,6 +188,115 @@ function ConfettiBurst({ active }: { active: boolean }) {
   );
 }
 
+/** ✅ NEW: Wilson 每日總時數折線圖（純 SVG，不用裝套件） */
+function MiniLineChart({
+  data,
+  height = 140,
+}: {
+  data: { date: string; hours: number }[];
+  height?: number;
+}) {
+  const width = 600; // viewBox 用，實際顯示會用 w-full 自適應
+  const padL = 28;
+  const padR = 12;
+  const padT = 12;
+  const padB = 22;
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">
+        還沒有 Wilson 的每日紀錄～（有資料後會自動出現折線圖）
+      </div>
+    );
+  }
+
+  const ys = data.map((d) => Number(d.hours) || 0);
+
+  const minYRaw = Math.min(...ys);
+  const maxYRaw = Math.max(...ys);
+  const minY = Math.max(0, Math.floor(minYRaw * 2) / 2); // 以 0.5 為刻度向下
+  const maxY = Math.max(minY + 0.5, Math.ceil(maxYRaw * 2) / 2); // 至少有高度
+
+  const plotW = width - padL - padR;
+  const plotH = height - padT - padB;
+
+  const xScale = (i: number) => {
+    if (data.length <= 1) return padL + plotW / 2;
+    return padL + (i / (data.length - 1)) * plotW;
+  };
+  const yScale = (v: number) => {
+    const t = (v - minY) / (maxY - minY || 1);
+    return padT + (1 - t) * plotH;
+  };
+
+  const points = data
+    .map((d, i) => `${xScale(i).toFixed(2)},${yScale(Number(d.hours) || 0).toFixed(2)}`)
+    .join(" ");
+
+  const gridYs = [0, 0.5, 1].map((t) => padT + t * plotH);
+
+  const first = data[0];
+  const last = data[data.length - 1];
+
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-white/70 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium text-zinc-900">📈 Wilson 每日總讀書時數</div>
+        <div className="text-[11px] text-zinc-500">
+          {first.date} → {last.date}
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <svg className="w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Wilson daily study hours line chart">
+          {/* grid */}
+          {gridYs.map((gy, idx) => (
+            <line key={idx} x1={padL} x2={width - padR} y1={gy} y2={gy} stroke="currentColor" opacity={0.08} />
+          ))}
+
+          {/* y labels */}
+          <text x={2} y={yScale(maxY) + 4} fontSize="10" fill="currentColor" opacity={0.55}>
+            {maxY.toFixed(1)}
+          </text>
+          <text x={2} y={yScale(minY) + 4} fontSize="10" fill="currentColor" opacity={0.55}>
+            {minY.toFixed(1)}
+          </text>
+
+          {/* line */}
+          <polyline
+            points={points}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            opacity={0.85}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+
+          {/* dots + tooltip */}
+          {data.map((d, i) => (
+            <circle key={d.date} cx={xScale(i)} cy={yScale(Number(d.hours) || 0)} r={4} fill="currentColor" opacity={0.85}>
+              <title>
+                {d.date}：{(Number(d.hours) || 0).toFixed(1)}h
+              </title>
+            </circle>
+          ))}
+
+          {/* x labels: first / last */}
+          <text x={padL} y={height - 6} fontSize="10" fill="currentColor" opacity={0.55}>
+            {first.date.slice(5)}
+          </text>
+          <text x={width - padR} y={height - 6} fontSize="10" fill="currentColor" opacity={0.55} textAnchor="end">
+            {last.date.slice(5)}
+          </text>
+        </svg>
+
+        <div className="mt-2 text-xs text-zinc-500">小提示：滑到點上會看到 tooltip（日期 / 時數）。</div>
+      </div>
+    </div>
+  );
+}
+
 function TabButton({
   active,
   onClick,
@@ -206,9 +314,7 @@ function TabButton({
     <button
       onClick={onClick}
       className={`flex-1 rounded-2xl px-3 py-3 text-sm font-medium border transition ${
-        active
-          ? "bg-rose-600 text-white border-rose-600 shadow-sm"
-          : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
+        active ? "bg-rose-600 text-white border-rose-600 shadow-sm" : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
       }`}
     >
       <div className="flex items-center justify-center gap-2">
@@ -239,17 +345,7 @@ function BottomTabBar({
   unlockBadge: string;
   photosBadge?: string;
 }) {
-  const Item = ({
-    k,
-    icon,
-    label,
-    badge,
-  }: {
-    k: TabKey;
-    icon: string;
-    label: string;
-    badge?: string;
-  }) => {
+  const Item = ({ k, icon, label, badge }: { k: TabKey; icon: string; label: string; badge?: string }) => {
     const active = tab === k;
     return (
       <button
@@ -295,7 +391,7 @@ export default function TodayPage() {
   const unlockSectionRef = useRef<HTMLElement | null>(null);
 
   const [tab, setTab] = useState<TabKey>("checkin");
-    // 回顧牆範圍：30天 / 90天 / 全部（但全部也只從 2026-01-25 開始）
+  // 回顧牆範圍：30天 / 90天 / 全部（但全部也只從 2026-01-25 開始）
   const [historyRange, setHistoryRange] = useState<HistoryRange>("30");
 
   // UI 顯示用：目前回顧牆的起算日
@@ -305,13 +401,12 @@ export default function TodayPage() {
     return maxISODate(MIN_HISTORY_DATE, candidate);
   }, [historyRange]);
 
-
   // auth/profile
   const [coupleId, setCoupleId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<Role | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [writerId, setWriterId] = useState<string | null>(null);
-  
+
   // progress (my side editable)
   const [done, setDone] = useState<number[]>(subjects.map(() => 0));
   const totalTarget = useMemo(() => subjects.reduce((s, x) => s + x.target, 0), []);
@@ -333,7 +428,7 @@ export default function TodayPage() {
   const [myDiaryDraft, setMyDiaryDraft] = useState<string>("");
   const [partnerDiary, setPartnerDiary] = useState<string>("");
 
-  // history from DB (30 days)
+  // history from DB
   const [history, setHistory] = useState<Record<string, DayRecord>>({});
 
   // UI bits
@@ -397,11 +492,7 @@ export default function TodayPage() {
 
   // effective unlock
   const effectiveUnlocked =
-    myRole === "supporter"
-      ? true
-      : totalTarget === 0
-      ? false
-      : localTotalDone / totalTarget >= 2 / 3;
+    myRole === "supporter" ? true : totalTarget === 0 ? false : localTotalDone / totalTarget >= 2 / 3;
 
   const needHoursToUnlock = Math.max(0, (2 / 3) * totalTarget - localTotalDone);
   const unlockBadge = effectiveUnlocked ? "已解鎖" : `差 ${needHoursToUnlock.toFixed(1)}h`;
@@ -430,8 +521,8 @@ export default function TodayPage() {
       ? " 一切都是最好的安排💛"
       : "（未解鎖：達到 2/3 後就能看到對方給你的內容 💛）";
 
-  // fetch + build 30 days history + hydrate today from DB
-    const reloadAll = async () => {
+  // fetch + build history + hydrate today from DB
+  const reloadAll = async () => {
     if (!coupleId || !myUserId || !myRole) return;
 
     // ✅ 依 range 決定 fromDate，但永遠不早於 2026-01-25
@@ -504,8 +595,7 @@ export default function TodayPage() {
       const myDone = Array.isArray(mine?.done) ? (mine!.done as number[]) : subjects.map(() => 0);
       const partnerDone = Array.isArray(other?.done) ? (other!.done as number[]) : subjects.map(() => 0);
 
-      const myTotal =
-        typeof mine?.total_done === "number" ? mine.total_done : myDone.reduce((s, x) => s + (Number(x) || 0), 0);
+      const myTotal = typeof mine?.total_done === "number" ? mine.total_done : myDone.reduce((s, x) => s + (Number(x) || 0), 0);
       const partnerTotal =
         typeof other?.total_done === "number" ? other.total_done : partnerDone.reduce((s, x) => s + (Number(x) || 0), 0);
 
@@ -518,12 +608,16 @@ export default function TodayPage() {
 
       // ✅ 絕對（固定 Wilson = writer）
       const writerRow = writerId
-        ? (mine?.user_id === writerId ? mine : other?.user_id === writerId ? other : undefined)
-        : (myRole === "writer" ? mine : other);
+        ? mine?.user_id === writerId
+          ? mine
+          : other?.user_id === writerId
+          ? other
+          : undefined
+        : myRole === "writer"
+        ? mine
+        : other;
 
-      const supporterRow = writerId
-        ? (writerRow === mine ? other : mine)
-        : (myRole === "writer" ? other : mine);
+      const supporterRow = writerId ? (writerRow === mine ? other : mine) : myRole === "writer" ? other : mine;
 
       const writerDone = Array.isArray(writerRow?.done) ? (writerRow!.done as number[]) : subjects.map(() => 0);
       const supporterDone = Array.isArray(supporterRow?.done) ? (supporterRow!.done as number[]) : subjects.map(() => 0);
@@ -537,6 +631,7 @@ export default function TodayPage() {
         typeof supporterRow?.total_done === "number"
           ? supporterRow.total_done
           : supporterDone.reduce((s, x) => s + (Number(x) || 0), 0);
+
       const openMine = byDateOpen[d]?.mine ?? null;
       const openOther = byDateOpen[d]?.other ?? null;
 
@@ -602,7 +697,6 @@ export default function TodayPage() {
     setCoupleImgFailed(false);
   };
 
-
   // first load + reload when coupleId ready
   useEffect(() => {
     if (!coupleId || !myUserId || !myRole) return;
@@ -616,9 +710,15 @@ export default function TodayPage() {
 
     const channel = supabase
       .channel(`sb_${coupleId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "study_progress", filter: `couple_id=eq.${coupleId}` }, () => reloadAll())
-      .on("postgres_changes", { event: "*", schema: "public", table: "day_open_content", filter: `couple_id=eq.${coupleId}` }, () => reloadAll())
-      .on("postgres_changes", { event: "*", schema: "public", table: "day_content", filter: `couple_id=eq.${coupleId}` }, () => reloadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "study_progress", filter: `couple_id=eq.${coupleId}` }, () =>
+        reloadAll()
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "day_open_content", filter: `couple_id=eq.${coupleId}` }, () =>
+        reloadAll()
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "day_content", filter: `couple_id=eq.${coupleId}` }, () =>
+        reloadAll()
+      )
       .subscribe(() => {});
 
     return () => {
@@ -801,6 +901,7 @@ export default function TodayPage() {
     }
     return { my, pt, both: my + pt };
   }, [history]);
+
   const partnerSubjectTotals = useMemo(() => {
     const totals = subjects.map(() => 0);
     for (const d of Object.keys(history)) {
@@ -813,6 +914,14 @@ export default function TodayPage() {
     return totals;
   }, [history]);
 
+  /** ✅ NEW: Wilson 每日總時數序列（由舊到新，畫折線） */
+  const wilsonDailySeries = useMemo(() => {
+    const ascDates = Object.keys(history).slice().sort((a, b) => (a > b ? 1 : a < b ? -1 : 0));
+    return ascDates.map((d) => ({
+      date: d,
+      hours: Number(history[d]?.writerTotalDone || 0),
+    }));
+  }, [history]);
 
   // =========================
   // UI
@@ -932,12 +1041,7 @@ export default function TodayPage() {
                     <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 flex-1">
                       {coupleImgSrc ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={coupleImgSrc}
-                          alt="couple"
-                          className="w-full h-auto rounded-xl"
-                          onError={() => setCoupleImgFailed(true)}
-                        />
+                        <img src={coupleImgSrc} alt="couple" className="w-full h-auto rounded-xl" onError={() => setCoupleImgFailed(true)} />
                       ) : (
                         <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 text-rose-700/70">
                           <div className="text-3xl">📷</div>
@@ -955,10 +1059,7 @@ export default function TodayPage() {
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                   <h2 className="text-lg font-semibold">今日目標（快速加減 0.5h）</h2>
-                  <button
-                    className="text-sm rounded-2xl border border-rose-200 bg-white/80 px-4 py-3 font-medium hover:bg-white"
-                    onClick={() => setDone(subjects.map(() => 0))}
-                  >
+                  <button className="text-sm rounded-2xl border border-rose-200 bg-white/80 px-4 py-3 font-medium hover:bg-white" onClick={() => setDone(subjects.map(() => 0))}>
                     全部歸零
                   </button>
                 </div>
@@ -1115,10 +1216,7 @@ export default function TodayPage() {
                         還差 <span className="font-semibold">{needHoursToUnlock.toFixed(1)}</span> 小時就解鎖囉～我在這裡等你 ✨
                       </div>
 
-                      <button
-                        className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]"
-                        onClick={() => setTab("checkin")}
-                      >
+                      <button className="w-full rounded-2xl bg-rose-600 text-white py-3 font-medium shadow-sm active:scale-[0.99]" onClick={() => setTab("checkin")}>
                         回去打卡 📝
                       </button>
                     </div>
@@ -1195,9 +1293,7 @@ export default function TodayPage() {
                 </div>
 
                 {displayDailyPhotos.length === 0 ? (
-                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">
-                    還沒有照片～上傳 1～3 張，回顧時會很有成就感 ✨
-                  </div>
+                  <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm text-zinc-600">還沒有照片～上傳 1～3 張，回顧時會很有成就感 ✨</div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {displayDailyPhotos.map((path) => (
@@ -1215,33 +1311,28 @@ export default function TodayPage() {
                             刪除
                           </button>
                         ) : (
-                          <div className="absolute left-2 top-2 rounded-full bg-white/90 border border-rose-200 px-3 py-1 text-[10px] font-medium text-rose-700">
-                            對方
-                          </div>
+                          <div className="absolute left-2 top-2 rounded-full bg-white/90 border border-rose-200 px-3 py-1 text-[10px] font-medium text-rose-700">對方</div>
                         )}
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div className="text-xs text-zinc-500">
-                  規則：supporter 永遠看得到雙方內容；writer 未達 2/3 前只看得到自己上傳，達標後才會看到對方上傳。
-                </div>
+                <div className="text-xs text-zinc-500">規則：supporter 永遠看得到雙方內容；writer 未達 2/3 前只看得到自己上傳，達標後才會看到對方上傳。</div>
               </section>
             </div>
           )}
 
           {/* Tab: 回顧 */}
-          {tab === "history" && 
+          {tab === "history" && (
             <div className="space-y-6">
               <section className="rounded-3xl border border-rose-200/60 bg-white/80 p-5 shadow-sm space-y-4">
                 <div className="flex flex-col gap-3">
                   <div>
                     <h2 className="text-lg font-semibold">🗓️ 回顧牆</h2>
-                    <p className="text-sm text-zinc-600">
-                      💌 感謝過去的自己，造就今天的我們。
-                    </p>
+                    <p className="text-sm text-zinc-600">💌 感謝過去的自己，造就今天的我們。</p>
                   </div>
+
                   <div className="flex items-center gap-2">
                     {(["30", "90", "all"] as HistoryRange[]).map((k) => {
                       const active = historyRange === k;
@@ -1251,9 +1342,7 @@ export default function TodayPage() {
                           key={k}
                           onClick={() => setHistoryRange(k)}
                           className={`rounded-2xl px-4 py-2 text-sm font-medium border transition ${
-                            active
-                              ? "bg-rose-600 text-white border-rose-600"
-                              : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
+                            active ? "bg-rose-600 text-white border-rose-600" : "bg-white/70 text-rose-700 border-rose-200 hover:bg-white"
                           }`}
                         >
                           {label}
@@ -1310,11 +1399,14 @@ export default function TodayPage() {
                         <div className="mt-3 flex items-center justify-between gap-3">
                           <div className="text-[11px] text-zinc-500">（選科目即可看累積時數）</div>
                           <div className="rounded-2xl border border-rose-200 bg-white/90 px-5 py-3">
-                            <span className="text-base font-semibold text-rose-700">
-                              {partnerSubjectTotals[partnerSubjectIdx].toFixed(1)}h
-                            </span>
+                            <span className="text-base font-semibold text-rose-700">{partnerSubjectTotals[partnerSubjectIdx].toFixed(1)}h</span>
                           </div>
                         </div>
+                      </div>
+
+                      {/* ✅ NEW: Wilson 每日總時數折線圖（在 Wilson 各科總時數下方） */}
+                      <div className="col-span-3">
+                        <MiniLineChart data={wilsonDailySeries} />
                       </div>
                     </div>
                   </div>
@@ -1337,10 +1429,9 @@ export default function TodayPage() {
                           ? Array.from(new Set([...(r.myDailyPhotoPaths || []), ...(r.partnerDailyPhotoPaths || [])]))
                           : isUnlock
                           ? Array.from(new Set([...(r.myDailyPhotoPaths || []), ...(r.partnerDailyPhotoPaths || [])]))
-                          : (r.myDailyPhotoPaths || []);
+                          : r.myDailyPhotoPaths || [];
 
-                      const hasAnyNotes =
-                        r.myStudyNotes.some((x) => x.trim()) || r.partnerStudyNotes.some((x) => x.trim());
+                      const hasAnyNotes = r.myStudyNotes.some((x) => x.trim()) || r.partnerStudyNotes.some((x) => x.trim());
 
                       return (
                         <div key={d} className="rounded-2xl border border-rose-200 bg-white/70 p-4 space-y-3">
@@ -1388,11 +1479,7 @@ export default function TodayPage() {
                           ) : (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 text-sm text-zinc-700">
                               <span className="font-medium text-rose-700">一句話：</span>{" "}
-                              {isUnlock
-                                ? r.partnerMessage?.trim()
-                                  ? r.partnerMessage
-                                  : "（這天對方沒有留一句話）"
-                                : "（未解鎖：達到 2/3 後才會看到對方內容 💛）"}
+                              {isUnlock ? (r.partnerMessage?.trim() ? r.partnerMessage : "（這天對方沒有留一句話）") : "（未解鎖：達到 2/3 後才會看到對方內容 💛）"}
                             </div>
                           )}
 
@@ -1428,7 +1515,6 @@ export default function TodayPage() {
                                     </div>
                                   );
                                 })}
-
                               </div>
                             </div>
                           ) : (
@@ -1436,7 +1522,7 @@ export default function TodayPage() {
                           )}
 
                           {/* 公開：心得日記 */}
-                          {(r.myDiary.trim() || r.partnerDiary.trim()) ? (
+                          {r.myDiary.trim() || r.partnerDiary.trim() ? (
                             <div className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-2">
                               <div className="font-medium text-zinc-900">📝 心得日記（兩人互看）</div>
                               {r.myDiary.trim() ? (
@@ -1460,7 +1546,7 @@ export default function TodayPage() {
                 )}
               </section>
             </div>
-          }
+          )}
         </div>
       </div>
 
@@ -1668,22 +1754,16 @@ async function getMyProfile() {
   if (userErr) return { profile: null, error: userErr };
   if (!user) return { profile: null, error: new Error("No user session") };
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("couple_id, role")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("couple_id, role").eq("user_id", user.id).maybeSingle();
 
   if (error) return { profile: null, error };
   if (!data) return { profile: null, error: new Error("Profile not found") };
 
   return { profile: data, error: null };
 }
+
 async function getWriterIdByCoupleId(coupleId: string) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("user_id, role")
-    .eq("couple_id", coupleId);
+  const { data, error } = await supabase.from("profiles").select("user_id, role").eq("couple_id", coupleId);
 
   if (error) throw error;
 
