@@ -432,7 +432,7 @@ export default function TodayPage() {
 
   // fetch + build 30 days history + hydrate today from DB
     const reloadAll = async () => {
-    if (!coupleId || !myUserId || !myRole || !writerId) return;
+    if (!coupleId || !myUserId || !myRole) return;
 
     // ✅ 依 range 決定 fromDate，但永遠不早於 2026-01-25
     const days = historyRange === "30" ? 29 : historyRange === "90" ? 89 : null;
@@ -517,8 +517,13 @@ export default function TodayPage() {
           : myTotal / totalTarget >= 2 / 3;
 
       // ✅ 絕對（固定 Wilson = writer）
-      const writerRow = mine?.user_id === writerId ? mine : other?.user_id === writerId ? other : undefined;
-      const supporterRow = writerRow === mine ? other : mine;
+      const writerRow = writerId
+        ? (mine?.user_id === writerId ? mine : other?.user_id === writerId ? other : undefined)
+        : (myRole === "writer" ? mine : other);
+
+      const supporterRow = writerId
+        ? (writerRow === mine ? other : mine)
+        : (myRole === "writer" ? other : mine);
 
       const writerDone = Array.isArray(writerRow?.done) ? (writerRow!.done as number[]) : subjects.map(() => 0);
       const supporterDone = Array.isArray(supporterRow?.done) ? (supporterRow!.done as number[]) : subjects.map(() => 0);
