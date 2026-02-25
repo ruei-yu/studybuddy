@@ -293,7 +293,8 @@ export default function RueiyuBackfillPage() {
 
           {subjects.map((s, i) => {
             const v = Number(done[i] || 0);
-            const ratio = s.target === 0 ? 0 : v / s.target;
+            const denom = Math.max(0.0001, Number(s.target));
+            const ratio = v / denom;
 
             return (
               <div key={s.name} className="rounded-2xl border border-rose-200/60 bg-white/70 p-4 space-y-3">
