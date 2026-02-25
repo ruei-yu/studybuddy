@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
-const RUEIYU_EMAIL = "rueiyu0910906@gmail.com"; // ✅ 改成 rueiyu 登入 Dashboard 的信箱
+const RUEIYU_EMAIL = "rueiyu@studybuddy.local"; // ✅ 改成 rueiyu 登入 Dashboard 的信箱
 
 const subjects = [
   { name: "行政法", target: 3 },
